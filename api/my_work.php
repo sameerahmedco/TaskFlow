@@ -9,7 +9,7 @@ if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
 $mode = (string) ($_GET['mode'] ?? 'all');
 $due = (string) ($_GET['due'] ?? 'all');
 $status = (string) ($_GET['status'] ?? 'open');
-if (!in_array($mode, ['all','assigned','created'], true)) json_error('Invalid work filter.', 400);
+if (!in_array($mode, ['all','assigned','created','favorites'], true)) json_error('Invalid work filter.', 400);
 if (!in_array($due, ['all','overdue','today','week','upcoming','none'], true)) json_error('Invalid date filter.', 400);
 if (!in_array($status, ['all','open','done'], true)) json_error('Invalid status filter.', 400);
 $limit = min(50, max(1, (int) ($_GET['limit'] ?? 30)));
@@ -21,7 +21,11 @@ $sql = 'SELECT t.id,t.title,t.status,t.priority,t.due_date,t.start_date,t.create
                ' . $assigned . ' AS assigned_to_me
         FROM tasks t JOIN lists l ON l.id=t.list_id JOIN teams tm ON tm.id=l.team_id WHERE t.parent_task_id IS NULL';
 $params = [$uid];
-if ($mode === 'created') { $sql .= ' AND t.created_by=?'; $params[] = $uid; }
+if ($mode === 'favorites') {
+    $sql .= ' AND EXISTS (SELECT 1 FROM task_favorites tf WHERE tf.task_id=t.id AND tf.user_id=?)';
+    $params[] = $uid;
+}
+elseif ($mode === 'created') { $sql .= ' AND t.created_by=?'; $params[] = $uid; }
 elseif ($mode === 'assigned') { $sql .= ' AND ' . $assigned; $params[] = $uid; }
 else { $sql .= ' AND (t.created_by=? OR ' . $assigned . ')'; array_push($params, $uid, $uid); }
 if (!in_array('administrator', $me['roles'], true)) {

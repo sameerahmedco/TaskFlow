@@ -1,6 +1,6 @@
 # TaskFlow v1.0.0 — Unified first release
 
-**Product name:** TaskFlow. **Version:** 1.0.0. **Release type:** first public baseline, pending full production acceptance testing.
+**Product name:** TaskFlow. **Version:** 1.0.0. **Release type:** initial release candidate.
 
 All task management, planning, teamwork, role controls, notification and security features are included in this release. Earlier development labels are not part of the product name or user-facing version history.
 

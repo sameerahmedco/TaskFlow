@@ -72,4 +72,13 @@ MFA is optional per user and supports six-digit authenticator codes plus ten rec
 
 ## Scheduled due-date reminders
 
-For existing preview databases, apply any missing migrations following `docs/UPGRADE.md` before deploying 1.0.0 code. A daily server cron should run `php bin/due-reminders.php`; it only generates in-app reminders unless the optional mail queue is explicitly enabled and a separate `bin/process-mail.php` worker is scheduled. Set the database timezone intentionally because dates are compared against `CURDATE()`. Set `TASKFLOW_MAIL_QUEUE=1` in the reminder job environment only when a mail worker will actually drain the outbox. Never expose either CLI file through a browser route; enable ordinary 90-day notification retention via `php bin/maintenance.php`. See `docs/RELEASE-1.0.0.md`.
+For existing preview databases, apply any missing migrations following `docs/UPGRADE.md` before deploying current TaskFlow code. A daily server cron should run `php bin/due-reminders.php`; it only generates in-app reminders unless the optional mail queue is explicitly enabled and a separate `bin/process-mail.php` worker is scheduled. Set the database timezone intentionally because dates are compared against `CURDATE()`. Set `TASKFLOW_MAIL_QUEUE=1` in the reminder job environment only when a mail worker will actually drain the outbox. Never expose either CLI file through a browser route; enable ordinary 90-day notification retention via `php bin/maintenance.php`. See `docs/RELEASE-1.10.0.md`.
+
+
+## Private task attachments (1.10.0)
+
+Uploads are **disabled by default**. Provision a writable directory outside the public PHP document root with mode `0700`, owned by the PHP application user. In your PHP process environment set `TASKFLOW_ATTACHMENTS_DIR=/var/lib/taskflow-files` (replace with a safe absolute path). PHP-FPM pools often clear environment variables; use an explicit trusted pool environment setting and restart the worker. Do not place this directory inside `assets/`, `uploads/` under the web root, or a shared static host directory.
+
+Set `upload_max_filesize >= 8M`, `post_max_size >= 10M`, and enable PHP `fileinfo`. TaskFlow permits only selected non-executable download formats. It does **not** scan attachments for malware and does **not** embed/preview them in HTML. Add your own antivirus and retention controls for sensitive deployments. Back up files and MySQL together (matching backup timestamps), restrict file-system read access, and use a secure shared disk only if running multiple app nodes.
+
+Files from deleted tasks may remain on disk after database cascades; use `php bin/attachments-gc.php` to preview and `php bin/attachments-gc.php --delete` to reclaim old orphaned files. The cleaner is CLI-only, caps each pass at 1,000 files, and skips files younger than 24 hours. Repeat runs on large datasets. Test restores before production deployment.

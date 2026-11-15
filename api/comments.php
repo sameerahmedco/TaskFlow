@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/task_watchers.php';
 start_secure_session();
 $me = current_user_record();
 $method = effective_method();
@@ -58,11 +59,15 @@ if ($method === 'POST') {
     $appUrl = app_link();
     $body_ = "{$me['name']} commented on \"$taskTitle\":\n\n$content\n\nOpen TaskFlow: $appUrl";
 
-    $recipientIds = task_assignee_ids($pdo, $taskId, [(int) $me['id']]);
+    $mentionIds = array_values(array_diff(array_map('intval', $alreadyMentioned), [(int) $me['id']]));
+    $recipientIds = taskflow_notification_recipients(
+        task_assignee_ids($pdo, $taskId),
+        taskflow_watcher_ids($pdo, $taskId, $teamId),
+        array_merge([(int)$me['id']], $mentionIds)
+    );
     notify('comment_added', $recipientIds, "New comment on: $taskTitle", $body_);
 
-    if ($alreadyMentioned) {
-        $mentionIds = array_values(array_diff($alreadyMentioned, [(int) $me['id']]));
+    if ($mentionIds) {
         notify('mentioned', $mentionIds, "{$me['name']} mentioned you on: $taskTitle", $body_);
     }
 

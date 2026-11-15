@@ -1,5 +1,9 @@
 <?php
 require_once __DIR__ . '/../includes/task_dependencies.php';
+require_once __DIR__ . '/../includes/recurrence.php';
+require_once __DIR__ . '/../includes/workload.php';
+require_once __DIR__ . '/../includes/task_watchers.php';
+require_once __DIR__ . '/../includes/timeline.php';
 start_secure_session();
 $me = current_user_record();
 $method = effective_method();
@@ -61,6 +65,36 @@ if ($method === 'GET') {
     $stmt->execute([$taskId]);
     $task['recent_activity'] = $stmt->fetchAll();
 
+    // Personal bookmarks never expose other users' saved tasks.
+    $favorite = $pdo->prepare('SELECT 1 FROM task_favorites WHERE user_id=? AND task_id=?');
+    $favorite->execute([(int) $me['id'], $taskId]);
+    $task['is_favorite'] = (bool) $favorite->fetchColumn();
+
+    // Count only active, still-authorized watchers; former teammates are excluded.
+    $watcherIds = taskflow_watcher_ids($pdo, $taskId, (int)$task['team_id']);
+    $task['is_watching'] = in_array((int)$me['id'], $watcherIds, true);
+    $task['watcher_count'] = count($watcherIds);
+
+    // Do not expose other people's logged hours to unrelated team members.
+    $canSeeTime = (bool) array_intersect($me['roles'], ['administrator','manager'])
+        || (int)$task['created_by'] === (int)$me['id'];
+    if (!$canSeeTime) {
+        foreach ($task['assignees'] as $assignee) {
+            if ((int)$assignee['id'] === (int)$me['id']) { $canSeeTime = true; break; }
+        }
+    }
+    $task['logged_minutes'] = null;
+    if ($canSeeTime) {
+        $spent = $pdo->prepare('SELECT COALESCE(SUM(minutes),0) FROM time_entries WHERE task_id=? AND team_id=?');
+        $spent->execute([$taskId, (int)$task['team_id']]);
+        $task['logged_minutes'] = (int)$spent->fetchColumn();
+    }
+
+    // Optional milestone is read-only here; only managers can change the link.
+    $milestoneStmt = $pdo->prepare('SELECT m.id,m.title,m.due_date FROM milestone_tasks mt JOIN milestones m ON m.id=mt.milestone_id WHERE mt.task_id=? AND m.list_id=?');
+    $milestoneStmt->execute([$taskId,(int)$task['list_id']]);
+    $task['milestone'] = $milestoneStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
     // Team id is authorized above, and lets cross-team admin views load the correct edit context.
     json_response(['task' => $task]);
 }
@@ -115,11 +149,24 @@ if ($method === 'PUT' || $method === 'PATCH') {
             if (!checkdate($month,$day,$year)) json_error('Invalid calendar date.', 400);
         }
     }
+    $requestedEstimate = null;
+    if (array_key_exists('estimate_minutes', $body)) {
+        try { $requestedEstimate = taskflow_estimate_minutes($body['estimate_minutes']); }
+        catch (InvalidArgumentException $error) { json_error($error->getMessage(), 400); }
+    }
     if (isset($body['priority']) && !in_array($body['priority'], ['urgent','high','normal','low','none'], true)) {
         json_error('Invalid priority.', 400);
     }
     if (isset($body['status']) && !in_array($body['status'], ['to_do','in_progress','review','done'], true)) {
         json_error('Invalid task status.', 400);
+    }
+    $recurrenceRule = null;
+    if (array_key_exists('recurrence_rule', $body) || array_key_exists('is_recurring_weekly', $body)) {
+        try { $recurrenceRule = taskflow_recurrence_rule($body['recurrence_rule'] ?? null, !empty($body['is_recurring_weekly'])); }
+        catch (InvalidArgumentException $e) { json_error($e->getMessage(), 400); }
+        if ($recurrenceRule !== 'none' && $task['parent_task_id'] !== null) {
+            json_error('Only a top-level task can repeat.', 400);
+        }
     }
     $priorStatus = $task['status'];
     $priorAssigneeStmt = $pdo->prepare('SELECT user_id FROM task_assignees WHERE task_id = ?');
@@ -130,7 +177,16 @@ if ($method === 'PUT' || $method === 'PATCH') {
     try {
         // Lock the target before checking prerequisites; a concurrent blocker
         // insertion must obtain this same lock before it can commit.
-        $pdo->prepare('SELECT id FROM tasks WHERE id=? FOR UPDATE')->execute([$taskId]);
+        $locked = $pdo->prepare('SELECT status,start_date,due_date FROM tasks WHERE id=? FOR UPDATE');
+        $locked->execute([$taskId]);
+        $lockedTask = $locked->fetch(PDO::FETCH_ASSOC);
+        if (!$lockedTask) throw new DomainException('Task is no longer available.');
+        $priorStatus = (string)$lockedTask['status'];
+        $effectiveStart = array_key_exists('start_date', $body) ? ($body['start_date'] ?: null) : $lockedTask['start_date'];
+        $effectiveDue = array_key_exists('due_date', $body) ? ($body['due_date'] ?: null) : $lockedTask['due_date'];
+        if (!taskflow_task_dates_consistent($effectiveStart, $effectiveDue)) {
+            throw new DomainException('Due date cannot precede start date.');
+        }
         if (isset($body['status']) && $body['status'] === 'done' && $priorStatus !== 'done'
             && taskflow_unfinished_blockers($pdo, $taskId) > 0) {
             throw new DomainException('Finish the blocking tasks before marking this task done.');
@@ -140,12 +196,16 @@ if ($method === 'PUT' || $method === 'PATCH') {
         if (isset($body['title'])) { $fields[] = 'title = ?'; $params[] = clean_str($body['title'], 255); }
         if (isset($body['description'])) { $fields[] = 'description = ?'; $params[] = clean_str($body['description'], 5000); }
         if (isset($body['status'])) { $fields[] = 'status = ?'; $params[] = $body['status']; }
+        if (array_key_exists('estimate_minutes', $body)) { $fields[] = 'estimate_minutes = ?'; $params[] = $requestedEstimate; }
         if (isset($body['priority']) && in_array($body['priority'], ['urgent','high','normal','low','none'], true)) {
             $fields[] = 'priority = ?'; $params[] = $body['priority'];
         }
         if (array_key_exists('start_date', $body)) { $fields[] = 'start_date = ?'; $params[] = $body['start_date'] ?: null; }
         if (array_key_exists('due_date', $body)) { $fields[] = 'due_date = ?'; $params[] = $body['due_date'] ?: null; }
-        if (isset($body['is_recurring_weekly'])) { $fields[] = 'is_recurring_weekly = ?'; $params[] = !empty($body['is_recurring_weekly']) ? 1 : 0; }
+        if ($recurrenceRule !== null) {
+            $fields[] = 'recurrence_rule = ?'; $params[] = $recurrenceRule;
+            $fields[] = 'is_recurring_weekly = ?'; $params[] = $recurrenceRule === 'weekly' ? 1 : 0;
+        }
         if (isset($body['position'])) { $fields[] = 'position = ?'; $params[] = (int) $body['position']; }
 
         if ($fields) {
@@ -167,6 +227,10 @@ if ($method === 'PUT' || $method === 'PATCH') {
             foreach ($requestedTags as $tid) $tStmt->execute([$taskId, $tid]);
         }
 
+        $newRecurringTaskId = null;
+        if (isset($body['status']) && $body['status'] === 'done' && $priorStatus !== 'done') {
+            $newRecurringTaskId = taskflow_spawn_weekly_successor($pdo, $taskId, gmdate('Y-m-d'));
+        }
         $pdo->commit();
     } catch (DomainException $exception) {
         if ($pdo->inTransaction()) $pdo->rollBack();
@@ -188,17 +252,17 @@ if ($method === 'PUT' || $method === 'PATCH') {
     $becameDone = isset($body['status']) && $body['status'] === 'done' && $priorStatus !== 'done';
 
     if ($becameDone) {
-        $recipientIds = task_assignee_ids($pdo, $taskId, [(int) $me['id']]);
+        $recipientIds = taskflow_notification_recipients(task_assignee_ids($pdo, $taskId), taskflow_watcher_ids($pdo, $taskId, $teamId), [(int)$me['id']]);
         notify('task_completed', $recipientIds, "Completed: $newTitle", "$newTitle was marked complete by {$me['name']}.\n\nOpen TaskFlow: $appUrl");
     } elseif ($fields) {
-        $recipientIds = task_assignee_ids($pdo, $taskId, [(int) $me['id']]);
+        $recipientIds = taskflow_notification_recipients(task_assignee_ids($pdo, $taskId), taskflow_watcher_ids($pdo, $taskId, $teamId), [(int)$me['id']]);
         notify('task_updated', $recipientIds, "Updated: $newTitle", "$newTitle was updated by {$me['name']}.\n\nOpen TaskFlow: $appUrl");
     }
     if ($newlyAssignedIds) {
         notify('task_assigned', array_values($newlyAssignedIds), "You were assigned: $newTitle", "{$me['name']} assigned you to: $newTitle\n\nOpen TaskFlow: $appUrl");
     }
 
-    json_response(['ok' => true]);
+    json_response(['ok' => true, 'recurrence_new_task_id' => $newRecurringTaskId]);
 }
 
 if ($method === 'DELETE') {

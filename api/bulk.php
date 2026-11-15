@@ -1,6 +1,7 @@
 <?php
 /** Atomic, capped changes to tasks the caller is entitled to edit. */
 require_once __DIR__ . '/../includes/task_dependencies.php';
+require_once __DIR__ . '/../includes/recurrence.php';
 start_secure_session();
 $me = current_user_record();
 if (effective_method() !== 'POST') json_error('Method not allowed.', 405);
@@ -52,6 +53,15 @@ try {
     $stmt = $pdo->prepare("UPDATE tasks SET $field=? WHERE id IN ($placeholders)");
     $stmt->execute(array_merge([$value], $taskIds));
     $changed = $stmt->rowCount();
+    $recurringIds = [];
+    if ($field === 'status' && $value === 'done') {
+        foreach ($rows as $task) {
+            if ($task['status'] !== 'done') {
+                $created = taskflow_spawn_weekly_successor($pdo, (int) $task['id'], gmdate('Y-m-d'));
+                if ($created !== null) $recurringIds[] = $created;
+            }
+        }
+    }
     $pdo->commit();
 } catch (DomainException $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
@@ -62,4 +72,4 @@ try {
     json_error('Bulk update could not be saved.', 500);
 }
 log_activity((int) $teamId, null, (int) $me['id'], 'tasks_bulk_updated', "$field: $value; selected " . count($taskIds));
-json_response(['ok' => true, 'selected' => count($taskIds), 'changed' => $changed]);
+json_response(['ok' => true, 'selected' => count($taskIds), 'changed' => $changed, 'recurring_created' => count($recurringIds)]);

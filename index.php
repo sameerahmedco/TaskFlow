@@ -23,7 +23,7 @@ start_secure_session();
 <!-- ===================== SIGN IN ===================== -->
 <div id="auth-screen" class="auth-screen auth-split">
   <div class="auth-story" aria-label="About TaskFlow">
-    <div class="auth-story-brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="auth-story-version">1.0.0</span></div>
+    <div class="auth-story-brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="auth-story-version">1.10.0</span></div>
     <div class="auth-story-inner">
       <div class="auth-story-eyebrow"><span class="signal-dot"></span> Your work, in one place</div>
       <h1>Great work starts<br>with <em>clear thinking.</em></h1>
@@ -102,7 +102,7 @@ start_secure_session();
   <a class="skip-to-content" href="#view-container">Skip to content</a>
   <aside id="workspace-sidebar" class="sidebar" aria-label="Workspace navigation">
     <div class="sidebar-top">
-      <div class="brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="brand-version">1.0.0</span></div>
+      <div class="brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="brand-version">1.10.0</span></div>
       <div class="workspace-card">
         <div class="workspace-card-label">WORKSPACE</div>
         <div class="workspace-card-name" id="org-name"></div>
@@ -118,6 +118,15 @@ start_secure_session();
       <button type="button" class="nav-item" data-view="search"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#search"></use></svg><span>Find tasks</span></button>
       <button type="button" class="nav-item" data-view="inbox"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#bell"></use></svg><span>Inbox</span><span id="inbox-badge" class="inbox-badge hidden" aria-label="Unread notifications"></span></button>
       <span class="nav-group-label">PLANNING</span>
+      <button type="button" class="nav-item" data-view="timeline"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#bar-chart"></use></svg><span>Project timeline</span></button>
+      <button type="button" class="nav-item" data-view="calendar"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#calendar"></use></svg><span>Calendar</span></button>
+      <button type="button" class="nav-item" data-view="time-reports"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#clock"></use></svg><span>Time reports</span></button>
+      <button type="button" class="nav-item" data-view="timesheet"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#calendar"></use></svg><span>Weekly timesheet</span></button>
+      <button type="button" class="nav-item" data-view="portfolio"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#layers"></use></svg><span>Project portfolio</span></button>
+      <button type="button" class="nav-item" data-view="project-updates"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#message"></use></svg><span>Project updates</span></button>
+      <button type="button" class="nav-item" data-view="milestones"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#flag"></use></svg><span>Milestones</span></button>
+      <button type="button" class="nav-item" data-view="workload"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#bar-chart"></use></svg><span>Workload planner</span></button>
+      <button type="button" class="nav-item" data-view="templates"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#check-square"></use></svg><span>Templates</span></button>
       <button type="button" class="nav-item" data-view="monthly"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#calendar"></use></svg><span>Monthly plan</span></button>
       <button type="button" class="nav-item" data-view="priorities"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#flag"></use></svg><span>Weekly goals</span></button>
       <button type="button" class="nav-item" data-view="team-dashboard"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#bar-chart"></use></svg><span>Team insights</span></button>
@@ -143,7 +152,7 @@ start_secure_session();
         <button id="change-pw-btn" class="icon-btn" title="Change password" aria-label="Change password"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#key"></use></svg></button>
         <button id="logout-btn" class="btn btn-ghost logout-btn" title="Log out">Sign out</button>
       </div>
-      <div class="sidebar-version">TaskFlow <span>v1.0.0</span></div>
+      <div class="sidebar-version">TaskFlow <span>v1.10.0</span></div>
     </div>
   </aside>
   <main class="main" id="main-content">

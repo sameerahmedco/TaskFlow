@@ -7,6 +7,15 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') json_error('Method not allowed
 $teamId = (int) ($_GET['team_id'] ?? 0);
 if ($teamId < 1) json_error('Select a team.', 400);
 require_team_access($teamId);
+$listId = null;
+if (isset($_GET['list_id']) && $_GET['list_id'] !== '') {
+    $listId = filter_var($_GET['list_id'], FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]);
+    if (!$listId) json_error('Invalid task list.', 400);
+    $checkList = get_pdo()->prepare('SELECT 1 FROM lists WHERE id=? AND team_id=?');
+    $checkList->execute([$listId,$teamId]);
+    if (!$checkList->fetchColumn()) json_error('List not found in this team.', 404);
+}
+
 $query = trim((string) ($_GET['q'] ?? ''));
 if (strlen($query) > 120) json_error('Search is limited to 120 characters.', 400);
 $status = (string) ($_GET['status'] ?? 'all');
@@ -16,7 +25,7 @@ if (!in_array($priority, ['all','urgent','high','normal','low','none'], true)) j
 $limit = min(50, max(1, (int) ($_GET['limit'] ?? 30)));
 $beforeId = max(0, (int) ($_GET['before_id'] ?? 0));
 $mine = (string) ($_GET['mine'] ?? '') === '1';
-$sql = 'SELECT t.id, t.title, t.status, t.priority, t.start_date, t.due_date, t.created_by,
+$sql = 'SELECT t.id, t.list_id, t.title, t.status, t.priority, t.start_date, t.due_date, t.created_by,
                t.created_at, t.updated_at, l.name AS list_name,
                EXISTS (SELECT 1 FROM task_dependencies d JOIN tasks blocker ON blocker.id=d.depends_on_task_id
                        WHERE d.task_id=t.id AND blocker.status<>\'done\') AS has_unfinished_blockers,
@@ -24,6 +33,7 @@ $sql = 'SELECT t.id, t.title, t.status, t.priority, t.start_date, t.due_date, t.
         FROM tasks t JOIN lists l ON l.id=t.list_id
         WHERE l.team_id=?';
 $params = [(int) $me['id'], $teamId];
+if ($listId !== null) { $sql .= ' AND t.list_id=?'; $params[] = (int)$listId; }
 if ($query !== '') {
     // Escape LIKE metacharacters so searching for % / _ does not list everything.
     $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $query) . '%';

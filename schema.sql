@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS lists (
   name VARCHAR(150) NOT NULL,
   position INT UNSIGNED NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_lists_id_team (id,team_id),
   FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -75,9 +76,14 @@ CREATE TABLE IF NOT EXISTS tasks (
   description TEXT,
   status VARCHAR(50) NOT NULL DEFAULT 'to_do',
   priority ENUM('urgent','high','normal','low','none') NOT NULL DEFAULT 'none',
+  estimate_minutes INT UNSIGNED NULL DEFAULT NULL,
+  CONSTRAINT chk_task_estimate CHECK (estimate_minutes BETWEEN 1 AND 24000 OR estimate_minutes IS NULL),
   start_date DATE DEFAULT NULL,
   due_date DATE DEFAULT NULL,
   is_recurring_weekly TINYINT(1) NOT NULL DEFAULT 0,
+  recurrence_rule ENUM('none','daily','weekly','biweekly','monthly') NOT NULL DEFAULT 'none',
+  recurrence_generated_from INT UNSIGNED DEFAULT NULL,
+  recurrence_generated_at DATETIME DEFAULT NULL,
   position INT UNSIGNED NOT NULL DEFAULT 0,
   created_by INT UNSIGNED NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -87,10 +93,119 @@ CREATE TABLE IF NOT EXISTS tasks (
   FOREIGN KEY (created_by) REFERENCES users(id),
   INDEX idx_due (due_date),
   INDEX idx_tasks_due_status (due_date, status, id),
+  INDEX idx_tasks_due_effort (due_date, status, list_id),
+  INDEX idx_tasks_list_start_due (list_id, start_date, due_date, id),
   INDEX idx_list (list_id),
   INDEX idx_parent (parent_task_id),
   INDEX idx_tasks_list_status_id (list_id, status, id),
-  INDEX idx_tasks_list_position (list_id, parent_task_id, position, id)
+  INDEX idx_tasks_list_position (list_id, parent_task_id, position, id),
+  UNIQUE KEY uq_tasks_recurrence_source (recurrence_generated_from),
+  CONSTRAINT fk_task_recurrence_source FOREIGN KEY (recurrence_generated_from) REFERENCES tasks(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Team-list milestones and one-milestone-per-task assignment.
+CREATE TABLE IF NOT EXISTS milestones (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  list_id INT UNSIGNED NOT NULL,
+  title VARCHAR(150) NOT NULL,
+  description TEXT NOT NULL,
+  due_date DATE DEFAULT NULL,
+  is_archived TINYINT(1) NOT NULL DEFAULT 0,
+  created_by INT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_milestones_list_due (list_id, is_archived, due_date, id),
+  CONSTRAINT fk_milestones_list FOREIGN KEY (list_id) REFERENCES lists(id) ON DELETE CASCADE,
+  CONSTRAINT fk_milestones_user FOREIGN KEY (created_by) REFERENCES users(id),
+  CONSTRAINT chk_milestones_archived CHECK (is_archived IN (0,1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS milestone_tasks (
+  task_id INT UNSIGNED PRIMARY KEY,
+  milestone_id INT UNSIGNED NOT NULL,
+  added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_milestone_tasks_milestone (milestone_id, task_id),
+  CONSTRAINT fk_milestone_tasks_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  CONSTRAINT fk_milestone_tasks_milestone FOREIGN KEY (milestone_id) REFERENCES milestones(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- TaskFlow 1.8.0: append-only project reporting + personal task watchers.
+-- Apply once to a backed-up TaskFlow 1.7.0 MySQL 8+ database.
+-- Existing tasks, worklogs, projects, and user roles remain unchanged.
+CREATE TABLE project_updates (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  team_id INT UNSIGNED NOT NULL,
+  list_id INT UNSIGNED NOT NULL,
+  author_id INT UNSIGNED NULL,
+  author_name VARCHAR(100) NOT NULL,
+  status ENUM('on_track','at_risk','blocked','complete') NOT NULL,
+  summary TEXT NOT NULL,
+  next_steps TEXT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_project_updates_team_latest (team_id,id),
+  INDEX idx_project_updates_list_latest (list_id,id),
+  INDEX idx_project_updates_list_team (list_id,team_id),
+  CONSTRAINT fk_project_updates_list_team FOREIGN KEY (list_id,team_id) REFERENCES lists(id,team_id) ON DELETE CASCADE,
+  CONSTRAINT fk_project_updates_author FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE task_watchers (
+  user_id INT UNSIGNED NOT NULL,
+  task_id INT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id,task_id),
+  INDEX idx_task_watchers_task (task_id,user_id),
+  CONSTRAINT fk_task_watchers_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_task_watchers_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Personal, team-scoped saved task searches (up to 20 per user/team).
+CREATE TABLE IF NOT EXISTS saved_task_views (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  team_id INT UNSIGNED NOT NULL,
+  name VARCHAR(60) NOT NULL,
+  q VARCHAR(120) NOT NULL DEFAULT '',
+  status ENUM('all','to_do','in_progress','review','done') NOT NULL DEFAULT 'all',
+  priority ENUM('all','urgent','high','normal','low','none') NOT NULL DEFAULT 'all',
+  mine TINYINT(1) NOT NULL DEFAULT 0,
+  list_id INT UNSIGNED DEFAULT NULL,
+  is_default TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_saved_task_views_owner_team_name (user_id,team_id,name),
+  INDEX idx_saved_task_views_owner_team_default (user_id,team_id,is_default),
+  CONSTRAINT fk_saved_task_views_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_saved_task_views_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_saved_task_views_list FOREIGN KEY (list_id) REFERENCES lists(id) ON DELETE CASCADE,
+  CONSTRAINT chk_saved_task_views_mine CHECK (mine IN (0,1)),
+  CONSTRAINT chk_saved_task_views_default CHECK (is_default IN (0,1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Team-scoped reusable task templates. Templates contain no people or secrets.
+CREATE TABLE IF NOT EXISTS task_templates (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  team_id INT UNSIGNED NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  description TEXT NOT NULL,
+  priority ENUM('urgent','high','normal','low','none') NOT NULL DEFAULT 'normal',
+  estimate_minutes INT UNSIGNED NULL DEFAULT NULL,
+  CONSTRAINT chk_template_estimate CHECK (estimate_minutes BETWEEN 1 AND 24000 OR estimate_minutes IS NULL),
+  created_by INT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_task_templates_team (team_id, id),
+  FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  FOREIGN KEY (created_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS task_template_items (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  template_id INT UNSIGNED NOT NULL,
+  content VARCHAR(255) NOT NULL,
+  position TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  INDEX idx_template_item_order (template_id, position, id),
+  FOREIGN KEY (template_id) REFERENCES task_templates(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Task prerequisites; the application validates team boundaries and prevents cycles.
@@ -180,11 +295,40 @@ CREATE TABLE IF NOT EXISTS activity_log (
   detail VARCHAR(500) DEFAULT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  INDEX idx_team_time (team_id, created_at)
+  INDEX idx_team_time (team_id, created_at),
+  INDEX idx_activity_team_id (team_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- No seeded administrator credentials. The one-time setup wizard creates the first administrator.
 SET FOREIGN_KEY_CHECKS = 1;
+
+CREATE TABLE IF NOT EXISTS task_favorites (
+  user_id INT UNSIGNED NOT NULL,
+  task_id INT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, task_id),
+  INDEX idx_favorite_task (task_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS time_entries (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  task_id INT UNSIGNED NOT NULL,
+  team_id INT UNSIGNED NOT NULL,
+  user_id INT UNSIGNED NOT NULL,
+  minutes SMALLINT UNSIGNED NOT NULL,
+  work_date DATE NOT NULL,
+  note VARCHAR(300) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CHECK (minutes BETWEEN 1 AND 720),
+  INDEX idx_time_team_date_id (team_id, work_date, id),
+  INDEX idx_time_user_date_id (user_id, work_date, id),
+  INDEX idx_time_task_user_id (task_id, user_id, id),
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------------------------------------------------
 -- Weekly priorities — each person's own "top 5 for the week",
@@ -230,7 +374,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  INDEX idx_team_time (team_id, created_at)
+  INDEX idx_team_time (team_id, created_at),
+  INDEX idx_activity_team_id (team_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS chat_mentions (
@@ -404,4 +549,78 @@ CREATE TABLE IF NOT EXISTS mail_queue (
   sent_at DATETIME NULL,
   INDEX idx_queue_work (status, next_attempt_at, id),
   FOREIGN KEY (recipient_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- One persistent, server-timed interval per user (TaskFlow 1.3.0).
+CREATE TABLE IF NOT EXISTS active_task_timers (
+  user_id INT UNSIGNED NOT NULL PRIMARY KEY,
+  task_id INT UNSIGNED NOT NULL,
+  started_at DATETIME NOT NULL,
+  INDEX idx_active_timer_task (task_id),
+  CONSTRAINT fk_active_timer_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_active_timer_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- TaskFlow 1.4.0 - apply ONCE to a backed-up 1.3.0 database.
+-- Submitted/approved weeks are read-only for new or deleted worklogs.
+-- Previous worklogs and timers are not changed by this migration.
+CREATE TABLE IF NOT EXISTS timesheet_reviews (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  team_id INT UNSIGNED NOT NULL,
+  user_id INT UNSIGNED NOT NULL,
+  week_start DATE NOT NULL,
+  status ENUM('submitted','approved','changes_requested') NOT NULL DEFAULT 'submitted',
+  entry_count INT UNSIGNED NOT NULL DEFAULT 0,
+  total_minutes INT UNSIGNED NOT NULL DEFAULT 0,
+  submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_by INT UNSIGNED NULL,
+  reviewed_at DATETIME NULL,
+  reviewer_note VARCHAR(500) NOT NULL DEFAULT '',
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_review_team_user_week (team_id,user_id,week_start),
+  INDEX idx_review_queue (team_id,week_start,status,id),
+  INDEX idx_review_my_weeks (user_id,week_start),
+  CONSTRAINT fk_review_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_review_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_review_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS timesheet_review_events (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  review_id BIGINT UNSIGNED NOT NULL,
+  actor_id INT UNSIGNED NOT NULL,
+  event_type ENUM('submitted','approved','changes_requested','resubmitted') NOT NULL,
+  note VARCHAR(500) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_review_events (review_id,id),
+  CONSTRAINT fk_review_events_review FOREIGN KEY (review_id) REFERENCES timesheet_reviews(id) ON DELETE CASCADE,
+  CONSTRAINT fk_review_events_actor FOREIGN KEY (actor_id) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- TaskFlow 1.5.0: user-specific availability, 40h default if not configured.
+CREATE TABLE IF NOT EXISTS user_workload_capacity (
+  user_id INT UNSIGNED NOT NULL PRIMARY KEY,
+  weekly_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 2400,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT chk_week_capacity CHECK (weekly_minutes BETWEEN 0 AND 4800),
+  CONSTRAINT fk_workload_capacity_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- TaskFlow 1.10.0: task attachments. Physical files must live outside the web root;
+-- the table stores metadata only. Files are always served via authorized PHP.
+CREATE TABLE IF NOT EXISTS task_attachments (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  task_id INT UNSIGNED NOT NULL,
+  team_id INT UNSIGNED NOT NULL,
+  uploaded_by INT UNSIGNED NULL,
+  filename VARCHAR(180) NOT NULL,
+  storage_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  mime_type VARCHAR(120) NOT NULL,
+  size_bytes INT UNSIGNED NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_attachment_storage_key (storage_key),
+  INDEX idx_attachment_task_created (task_id,id),
+  CONSTRAINT fk_attachment_task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  CONSTRAINT fk_attachment_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_attachment_uploader FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT chk_attachment_size CHECK (size_bytes BETWEEN 1 AND 8388608)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

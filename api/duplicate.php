@@ -20,9 +20,9 @@ try {
     $position = $pdo->prepare('SELECT COALESCE(MAX(position),-1)+1 FROM tasks WHERE list_id=?');
     $position->execute([$source['list_id']]);
     $title = clean_str($source['title'], 248) . ' (copy)';
-    $pdo->prepare("INSERT INTO tasks (list_id,parent_task_id,title,description,status,priority,start_date,due_date,is_recurring_weekly,position,created_by)
-                   VALUES (?,NULL,?,?,'to_do',?,NULL,NULL,0,?,?)")
-        ->execute([(int) $source['list_id'], $title, $source['description'], $source['priority'], (int) $position->fetchColumn(), (int) $me['id']]);
+    $pdo->prepare("INSERT INTO tasks (list_id,parent_task_id,title,description,status,priority,estimate_minutes,start_date,due_date,is_recurring_weekly,position,created_by)
+                   VALUES (?,NULL,?,?,'to_do',?,?,NULL,NULL,0,?,?)")
+        ->execute([(int) $source['list_id'], $title, $source['description'], $source['priority'], $source['estimate_minutes'], (int) $position->fetchColumn(), (int) $me['id']]);
     $newId = (int) $pdo->lastInsertId();
     $pdo->prepare('INSERT INTO checklist_items (task_id,content,is_done,position)
                    SELECT ?,content,0,position FROM checklist_items WHERE task_id=? ORDER BY position,id LIMIT 200')

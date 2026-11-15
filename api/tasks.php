@@ -1,5 +1,8 @@
 <?php
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/workload.php';
+require_once __DIR__ . '/../includes/recurrence.php';
+require_once __DIR__ . '/../includes/timeline.php';
 start_secure_session();
 $me = current_user_record();
 $method = effective_method();
@@ -73,7 +76,7 @@ if ($method === 'GET') {
     require_team_access($teamId);
 
     $statusFilter = $_GET['status'] ?? null; // 'done' | 'pending' | null (all)
-    $sql = 'SELECT id, title, status, priority, start_date, due_date, is_recurring_weekly, position, created_by, created_at, updated_at
+    $sql = 'SELECT id, title, status, priority, estimate_minutes, start_date, due_date, is_recurring_weekly, position, created_by, created_at, updated_at
             FROM tasks WHERE list_id = ? AND parent_task_id IS NULL';
     $params = [$listId];
     if ($statusFilter === 'done') { $sql .= " AND status = 'done'"; }
@@ -102,17 +105,39 @@ if ($method === 'POST') {
     // Anyone on the team (member/manager/admin) can add their own task.
     require_team_access($teamId, ['administrator', 'manager', 'member']);
 
-    $title = clean_str($body['title'] ?? '', 255);
+    $templateId = null;
+    $templateItems = [];
+    $template = null;
+    if (array_key_exists('template_id', $body) && $body['template_id'] !== null) {
+        $templateId = filter_var($body['template_id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if (!$templateId) json_error('Invalid template.', 400);
+        $source = $pdo->prepare('SELECT title,description,priority,estimate_minutes FROM task_templates WHERE id=? AND team_id=?');
+        $source->execute([(int) $templateId, $teamId]);
+        $template = $source->fetch();
+        if (!$template) json_error('Template not found in this team.', 404);
+        $source = $pdo->prepare('SELECT content FROM task_template_items WHERE template_id=? ORDER BY position,id LIMIT 30');
+        $source->execute([(int) $templateId]);
+        $templateItems = array_column($source->fetchAll(), 'content');
+    }
+    $title = clean_str($body['title'] ?? ($template['title'] ?? ''), 255);
     if ($title === '') json_error('Task title is required.');
 
-    $description = clean_str($body['description'] ?? '', 5000);
+    $description = clean_str($body['description'] ?? ($template['description'] ?? ''), 5000);
     $status = clean_str($body['status'] ?? 'to_do', 50);
     if (!in_array($status, ['to_do','in_progress','review','done'], true)) json_error('Invalid task status.');
-    $priority = in_array($body['priority'] ?? 'none', ['urgent','high','normal','low','none'], true) ? $body['priority'] : 'none';
+    $priority = in_array($body['priority'] ?? ($template['priority'] ?? 'none'), ['urgent','high','normal','low','none'], true)
+        ? ($body['priority'] ?? ($template['priority'] ?? 'none')) : 'none';
+    try {
+        $estimate = taskflow_estimate_minutes(array_key_exists('estimate_minutes',$body) ? $body['estimate_minutes'] : ($template['estimate_minutes'] ?? null));
+    } catch (InvalidArgumentException $error) { json_error($error->getMessage(), 400); }
     $startDate = !empty($body['start_date']) ? clean_str($body['start_date'], 10) : null;
     $dueDate = !empty($body['due_date']) ? clean_str($body['due_date'], 10) : null;
     $parentId = !empty($body['parent_task_id']) ? (int) $body['parent_task_id'] : null;
-    $recurring = !empty($body['is_recurring_weekly']) ? 1 : 0;
+    try { $recurrenceRule = taskflow_recurrence_rule($body['recurrence_rule'] ?? null, !empty($body['is_recurring_weekly'])); }
+    catch (InvalidArgumentException $e) { json_error($e->getMessage(), 400); }
+    $recurring = $recurrenceRule === 'weekly' ? 1 : 0;
+    if ($recurrenceRule !== 'none' && $parentId !== null) json_error('Only a top-level task can repeat.', 400);
+    if ($recurrenceRule !== 'none' && $status === 'done') json_error('Create a repeating task as active work.', 400);
     if ($parentId !== null) {
         $parentStmt = $pdo->prepare('SELECT l.team_id FROM tasks t JOIN lists l ON l.id=t.list_id WHERE t.id=?');
         $parentStmt->execute([$parentId]);
@@ -128,6 +153,7 @@ if ($method === 'POST') {
         [$year, $month, $day] = array_map('intval', explode('-', $date));
         if (!checkdate($month, $day, $year)) json_error('Invalid ' . $field . ' calendar date.', 400);
     }
+    if (!taskflow_task_dates_consistent($startDate, $dueDate)) json_error('Due date cannot precede start date.', 400);
     $requested = [];
     if (array_key_exists('assignee_ids', $body)) {
         if (!is_array($body['assignee_ids']) || count($body['assignee_ids']) > 100) json_error('Invalid assignee list.', 400);
@@ -149,16 +175,19 @@ if ($method === 'POST') {
         $pos = (int) $stmt->fetch()['pos'];
 
         $stmt = $pdo->prepare(
-            'INSERT INTO tasks (list_id, parent_task_id, title, description, status, priority, start_date, due_date, is_recurring_weekly, position, created_by)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+            'INSERT INTO tasks (list_id, parent_task_id, title, description, status, priority, estimate_minutes, start_date, due_date, is_recurring_weekly, recurrence_rule, position, created_by)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)'
         );
-        $stmt->execute([$listId, $parentId, $title, $description, $status, $priority, $startDate, $dueDate, $recurring, $pos, $me['id']]);
+        $stmt->execute([$listId, $parentId, $title, $description, $status, $priority, $estimate, $startDate, $dueDate, $recurring, $recurrenceRule, $pos, $me['id']]);
         $taskId = (int) $pdo->lastInsertId();
 
         // All assignee IDs were validated before the task was inserted.
         $aStmt = $pdo->prepare('INSERT IGNORE INTO task_assignees (task_id, user_id) VALUES (?,?)');
         foreach ($requested as $aid) $aStmt->execute([$taskId, $aid]);
-
+        if ($templateItems) {
+            $itemStmt = $pdo->prepare('INSERT INTO checklist_items (task_id,content,is_done,position) VALUES (?,?,0,?)');
+            foreach ($templateItems as $index => $item) $itemStmt->execute([$taskId, $item, $index]);
+        }
         $pdo->commit();
     } catch (Throwable $exception) {
         if ($pdo->inTransaction()) $pdo->rollBack();

@@ -14,6 +14,12 @@
     lists: [],
     currentListId: null,
     taskTab: 'view', // add | view | pending | completed
+    calendarMonth: new Date().getFullYear() + '-' + String(new Date().getMonth()+1).padStart(2,'0'),
+    calendarMine: false,
+    timelineMonth: new Date().getUTCFullYear() + '-' + String(new Date().getUTCMonth()+1).padStart(2,'0'),
+    timelineDays: 56,
+    timelineListId: 0,
+    timelineMine: false,
     weekOffset: 0,
     dashPeriod: 'weekly',
     dashOffset: 0,
@@ -63,7 +69,8 @@
   function esc(str) {
     const d = document.createElement('div');
     d.textContent = str == null ? '' : String(str);
-    return d.innerHTML;
+    // Safe both in text nodes and inside quoted HTML attributes.
+    return d.innerHTML.replaceAll('"', '&quot;').replaceAll("'", '&#39;');
   }
 
   function escapeForRegex(str) {
@@ -76,6 +83,24 @@
     return out;
   }
 
+  function hoursText(minutes) {
+    const n = Number(minutes || 0) / 60;
+    return n.toFixed(2).replace(/\.?0+$/, '') + 'h';
+  }
+  function hoursInput(minutes) {
+    if (minutes == null || minutes === '') return '';
+    return String(Math.round(Number(minutes) / 60 * 10000) / 10000);
+  }
+  function readEstimateHours(inputId) {
+    const value = document.getElementById(inputId).value.trim();
+    if (!value) return null;
+    const hours = Number(value);
+    if (!Number.isFinite(hours) || hours < 1 / 60 || hours > 400)
+      throw new Error('Estimated effort must be between 1 minute and 400 hours, or blank.');
+    const minutes = Math.round(hours * 60);
+    if (minutes < 1 || minutes > 24000) throw new Error('Enter an estimate of 1 to 24,000 minutes.');
+    return minutes;
+  }
   function fmtDate(dateStr) {
     if (!dateStr) return '';
     return new Date(dateStr + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
@@ -316,8 +341,11 @@
 
   async function onTeamChanged() {
     state.modalContexts = {};
+    milestoneSelectedId = null;
+    milestoneListFilter = '';
+    projectUpdateListFilter = '';
     await loadTeamContext();
-    setView(['org-dashboard','teams','users','org-activity','search','my-work','inbox','board'].includes(state.currentView) ? state.currentView : 'monthly');
+    setView(['org-dashboard','teams','users','org-activity','search','my-work','inbox','board','calendar','templates','time-reports','timesheet','workload','milestones','portfolio','project-updates','timeline'].includes(state.currentView) ? state.currentView : 'monthly');
   }
 
   async function loadTeamContext() {
@@ -342,7 +370,7 @@
     state.currentView = view;
     document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     const titles = {
-      'my-work': 'My Work', board: 'Board', inbox: 'Inbox', monthly: 'Monthly', tasks: 'Tasks', search: 'Search Tasks', 'team-dashboard': 'Team Dashboard', priorities: 'Weekly Goals',
+      'my-work': 'My Work', board: 'Board', inbox: 'Inbox', calendar:'Calendar', timeline:'Project timeline', 'time-reports':'Time reports', timesheet:'Weekly timesheet', workload:'Workload planner', milestones:'Milestones', portfolio:'Project portfolio', 'project-updates':'Project updates', templates:'Templates', monthly: 'Monthly', tasks: 'Tasks', search: 'Search Tasks', 'team-dashboard': 'Team Dashboard', priorities: 'Weekly Goals',
       roster: 'Team Members', activity: 'Activity', 'org-dashboard': 'Organization Dashboard',
       teams: 'Teams', users: 'Users', 'org-activity': 'Organization Activity', chat: 'Chat',
       'advanced-settings': 'Advanced Settings', 'my-account': 'My Account',
@@ -350,7 +378,7 @@
     document.getElementById('view-title').textContent = titles[view] || 'TaskFlow';
     const adminViews = ['org-dashboard','teams','users','org-activity','advanced-settings'];
     const collaborate = ['chat','roster','activity'];
-    const planning = ['monthly','priorities','team-dashboard'];
+    const planning = ['calendar','timeline','templates','time-reports','timesheet','workload','milestones','portfolio','project-updates','monthly','priorities','team-dashboard'];
     document.getElementById('view-overline').textContent = adminViews.includes(view) ? 'ORGANIZATION / ADMINISTRATION' : collaborate.includes(view) ? 'WORKSPACE / COLLABORATION' : planning.includes(view) ? 'WORKSPACE / PLANNING' : 'WORKSPACE / YOUR WORK';
     const descriptions = {
       'my-work':'Your priorities, without the noise.',
@@ -358,6 +386,15 @@
       tasks:'Plan and manage the details that matter.',
       search:'Find exactly what your team is working on.',
       inbox:'Updates and reminders, all in one place.',
+      calendar:'A clear calendar of every due date.',
+      timeline:'A visual roadmap of tasks, milestones and deadlines.',
+      templates:'Reusable starting points for repeatable work.',
+      'time-reports':'A clear view of logged work, organized by day and task.',
+      timesheet:'Track, submit and review weekly timesheets with an approval history.',
+      workload:'Plan the week with estimates, availability, and logged hours.',
+      'project-updates':'Share delivery status, risks, and next steps across your team.',
+      milestones:'Track delivery targets and work completed against them.',
+      portfolio:'See every task list, its progress, and delivery risks.',
       monthly:'A clear view of what is coming up.',
       priorities:'Keep the most important outcomes in sight.',
       'team-dashboard':'Understand progress across your team.',
@@ -370,7 +407,7 @@
     if (view !== 'chat') stopChatPolling();
 
     const renderers = {
-      'my-work': renderMyWork, board: renderBoard, inbox: renderInbox, monthly: renderMonthly, tasks: renderTasksView, search: renderSearchTasks, 'team-dashboard': () => renderDashboard('team'),
+      'my-work': renderMyWork, board: renderBoard, inbox: renderInbox, calendar:renderCalendar, timeline:renderTimeline, 'time-reports':renderTimeReports, timesheet:renderTimesheet, workload:renderWorkload, milestones: renderMilestones, portfolio:renderPortfolio, 'project-updates':renderProjectUpdates, templates:renderTemplates, monthly: renderMonthly, tasks: renderTasksView, search: renderSearchTasks, 'team-dashboard': () => renderDashboard('team'),
       priorities: renderPriorities, roster: renderRoster, activity: () => renderActivity(state.currentTeamId),
       'org-dashboard': () => renderDashboard('org'), teams: renderTeamsAdmin, users: renderUsersAdmin,
       'org-activity': () => renderActivity(null), chat: renderChat, 'advanced-settings': renderAdvancedSettings,
@@ -379,7 +416,7 @@
     return (renderers[view] || (() => {}))();
   }
 
-  // TaskFlow 1.0: lightweight shell controls (no third-party runtime).
+  // TaskFlow: lightweight shell controls (no third-party runtime).
   const themeStorageKey = 'taskflow-appearance';
   function setAppearance(value) {
     const theme = value === 'dark' ? 'dark' : 'light';
@@ -425,6 +462,375 @@
       document.getElementById('task-search-q')?.focus();
     }
   });
+
+  // ---------------------------------------------------------------
+  // PROJECT PORTFOLIO: compact per-list health summary, lazy pages.
+  // ---------------------------------------------------------------
+  let portfolioCursor = null;
+  let portfolioRequestSeq = 0;
+  const portfolioHealthText = {
+    empty:'No tasks yet', complete:'Complete', at_risk:'Past due', attention:'Needs attention', on_track:'On track',
+  };
+
+  async function renderPortfolio() {
+    const container = document.getElementById('view-container');
+    if (!state.currentTeamId) { container.innerHTML=emptyTeamState(); return; }
+    const canExport=iHave(['administrator','manager']);
+    document.getElementById('topbar-actions').innerHTML=canExport
+      ? `<a class="btn btn-ghost" href="api/portfolio_export.php?team_id=${Number(state.currentTeamId)}" download>Export portfolio CSV</a>` : '';
+    container.innerHTML=`<section class="portfolio-intro"><div class="milestone-eyebrow">PROJECT HEALTH</div>
+      <h2>A clear picture of your team's delivery.</h2><p>Each card represents one task list. Track finished work, upcoming deadlines, and milestone risks without opening every task.</p></section>
+      <div class="portfolio-summary" id="portfolio-summary" aria-live="polite"></div>
+      <div class="portfolio-grid" id="portfolio-cards" aria-live="polite"><p>Loading your lists…</p></div>
+      <div class="portfolio-more" id="portfolio-more"></div>
+      <p class="portfolio-footnote">Progress counts all tasks in a list, including subtasks. Only active milestones affect health. Counts are current as of the last refresh.</p>`;
+    // Replace the delegated handler on re-render so navigation never stacks listeners.
+    container.onclick=event=>{
+      const list=event.target.closest('[data-portfolio-list]');
+      if(list){
+        const id=Number(list.dataset.portfolioList);
+        if(!state.lists.some(l=>Number(l.id)===id))return;
+        state.currentListId=id;state.taskTab='view';setView('tasks');
+      }
+      const updates=event.target.closest('[data-portfolio-updates]');
+      if(updates){projectUpdateListFilter=String(Number(updates.dataset.portfolioUpdates));setView('project-updates');return;}
+      const milestone=event.target.closest('[data-portfolio-milestone]');
+      if(milestone){
+        milestoneListFilter=String(Number(milestone.dataset.portfolioMilestone));
+        milestoneSelectedId=null;setView('milestones');
+      }
+    };
+    portfolioCursor=null;
+    await loadPortfolio(false);
+  }
+  async function loadPortfolio(append=false){
+    const seq=++portfolioRequestSeq;
+    const teamId=Number(state.currentTeamId);
+    const cards=document.getElementById('portfolio-cards');
+    if(!cards)return;
+    const cursor=append?portfolioCursor:null;
+    if(!append)cards.innerHTML='<p>Loading your lists…</p>';
+    try {
+      const qs=new URLSearchParams({team_id:String(teamId)});
+      if(cursor)qs.set('after_id',String(cursor));
+      const data=await api('portfolio.php?'+qs);
+      if(seq!==portfolioRequestSeq || state.currentView!=='portfolio' || Number(state.currentTeamId)!==teamId)return;
+      if(!append)cards.innerHTML='';
+      if(!data.projects.length && !append){
+        cards.innerHTML='<div class="empty-state"><h3>No task lists yet</h3><p>Start by creating a list and adding tasks.</p></div>';
+      }
+      for(const p of data.projects){
+        const health=Object.prototype.hasOwnProperty.call(portfolioHealthText,p.health)?p.health:'empty';
+        const card=document.createElement('article');
+        card.className='portfolio-card';
+        card.dataset.tasks=String(Number(p.total_tasks));
+        card.dataset.done=String(Number(p.done_tasks));
+        card.dataset.overdue=String(Number(p.overdue_tasks));
+        card.innerHTML=`<div class="portfolio-card-head"><span class="portfolio-kicker">TASK LIST #${Number(p.id)}</span>
+          <span class="portfolio-health portfolio-health-${health}">${portfolioHealthText[health]}</span></div>
+          <h3>${esc(p.name)}</h3>
+          <div class="portfolio-progress-line"><strong>${Number(p.progress_percent)}%</strong><span>${Number(p.done_tasks)} of ${Number(p.total_tasks)} tasks done</span></div>
+          ${progressBarHtml(Number(p.progress_percent))}
+          <div class="portfolio-metrics">
+            <div><strong>${Number(p.overdue_tasks)}</strong><span>Overdue</span></div>
+            <div><strong>${Number(p.due_soon_tasks)}</strong><span>Due in 7 days</span></div>
+            <div><strong>${Number(p.unassigned_tasks)}</strong><span>Unassigned</span></div>
+            <div><strong>${Number(p.milestones_total)}</strong><span>Milestones</span></div>
+          </div>
+          <div class="portfolio-meta">${Number(p.milestones_late) ? `<strong>${Number(p.milestones_late)} past-target milestones</strong> · ` : ''}
+            ${hoursText(Number(p.remaining_estimate_minutes))} estimated remaining</div>
+          <div class="portfolio-actions"><button type="button" class="btn btn-primary" data-portfolio-list="${Number(p.id)}">Open tasks</button>
+            <button type="button" class="btn btn-ghost" data-portfolio-milestone="${Number(p.id)}">Milestones</button>
+            <button type="button" class="btn btn-ghost" data-portfolio-updates="${Number(p.id)}">Updates</button></div>`;
+        cards.appendChild(card);
+      }
+      portfolioCursor=data.next_after_id;
+      const wrap=document.getElementById('portfolio-more');
+      wrap.innerHTML=portfolioCursor ? '<button type="button" class="btn btn-ghost" id="portfolio-more-btn">Load more lists</button>' : '';
+      wrap.querySelector('button')?.addEventListener('click',()=>loadPortfolio(true));
+      const rendered=Array.from(cards.querySelectorAll('.portfolio-card'));
+      const total=rendered.reduce((n,el)=>n+Number(el.dataset.tasks),0);
+      const done=rendered.reduce((n,el)=>n+Number(el.dataset.done),0);
+      const overdue=rendered.reduce((n,el)=>n+Number(el.dataset.overdue),0);
+      document.getElementById('portfolio-summary').innerHTML=`<div><strong>${rendered.length}</strong><span>Lists loaded</span></div>
+        <div><strong>${done}/${total}</strong><span>Tasks complete</span></div>
+        <div><strong>${overdue}</strong><span>Overdue tasks</span></div>`;
+    }catch(err){
+      if(seq!==portfolioRequestSeq || state.currentView!=='portfolio')return;
+      if(!append)cards.innerHTML=`<div class="load-error-box"><p>${esc(err.message)}</p><button type="button" class="btn btn-ghost" id="portfolio-retry">Retry</button></div>`;
+      else toast(err.message,true);
+      document.getElementById('portfolio-retry')?.addEventListener('click',()=>loadPortfolio(false));
+    }
+  }
+
+
+  // ---------------------------------------------------------------
+  // PROJECT UPDATES: append-only status reporting per task list.
+  // ---------------------------------------------------------------
+  let projectUpdateListFilter = '';
+  let projectUpdateBefore = null;
+  let projectUpdateSeq = 0;
+  const projectUpdateStatus = {
+    on_track:'On track', at_risk:'At risk', blocked:'Blocked', complete:'Complete',
+  };
+  async function renderProjectUpdates() {
+    const container=document.getElementById('view-container');
+    if(!state.currentTeamId){container.innerHTML=emptyTeamState();return;}
+    const manager=iHave(['administrator','manager']);
+    const options=state.lists.map(l=>`<option value="${Number(l.id)}">${esc(l.name)}</option>`).join('');
+    const selectOptions=`<option value="">All task lists</option>${options}`;
+    container.innerHTML=`<section class="portfolio-intro"><div class="milestone-eyebrow">DELIVERY NOTES</div>
+      <h2>Progress that tells the full story.</h2><p>Post a short status report for each project. Updates are dated and preserved in order so teams can follow decisions and changes.</p></section>
+      ${manager&&state.lists.length?`<form id="project-update-form" class="project-update-form">
+        <h3>Publish a project update</h3>
+        <div class="project-update-form-grid"><label>Project<select id="pu-list" required>${options}</select></label>
+          <label>Overall status<select id="pu-status"><option value="on_track">On track</option><option value="at_risk">At risk</option><option value="blocked">Blocked</option><option value="complete">Complete</option></select></label></div>
+        <label>Progress summary<textarea id="pu-summary" minlength="10" maxlength="2000" required rows="3" placeholder="What changed, what was delivered, and what needs attention?"></textarea></label>
+        <label>Next steps (optional)<textarea id="pu-next" maxlength="1000" rows="2" placeholder="Upcoming actions, owners, or decisions"></textarea></label>
+        <div class="project-update-form-actions"><span>Published updates are kept as an append-only history.</span><button class="btn btn-primary" type="submit">Publish update</button></div>
+      </form>`:''}
+      <div class="project-update-toolbar"><label for="pu-filter">Update history</label>
+        <select id="pu-filter">${selectOptions}</select><button type="button" class="btn btn-ghost" id="pu-refresh">Refresh</button></div>
+      <div id="pu-feed" class="project-update-feed" aria-live="polite">Loading updates…</div>
+      <div id="pu-more" class="portfolio-more"></div>`;
+    if(projectUpdateListFilter && !state.lists.some(l=>String(l.id)===projectUpdateListFilter))projectUpdateListFilter='';
+    const filter=container.querySelector('#pu-filter');filter.value=projectUpdateListFilter;
+    if(container.querySelector('#pu-list') && projectUpdateListFilter)container.querySelector('#pu-list').value=projectUpdateListFilter;
+    filter.addEventListener('change',()=>{projectUpdateListFilter=filter.value;loadProjectUpdates();});
+    container.querySelector('#pu-refresh').addEventListener('click',()=>loadProjectUpdates());
+    container.querySelector('#project-update-form')?.addEventListener('submit',async e=>{
+      e.preventDefault();
+      const button=e.currentTarget.querySelector('button[type="submit"]');
+      button.disabled=true;
+      try{
+        const listId=Number(container.querySelector('#pu-list').value);
+        const status=container.querySelector('#pu-status').value;
+        const summary=container.querySelector('#pu-summary').value.trim();
+        const next_steps=container.querySelector('#pu-next').value.trim();
+        await api('project_updates.php',{method:'POST',body:{team_id:Number(state.currentTeamId),list_id:listId,status,summary,next_steps}});
+        container.querySelector('#pu-summary').value='';container.querySelector('#pu-next').value='';
+        projectUpdateListFilter=String(listId);filter.value=projectUpdateListFilter;
+        toast('Project update published');await loadProjectUpdates();
+      }catch(err){toast(err.message,true);}finally{button.disabled=false;}
+    });
+    projectUpdateBefore=null;
+    await loadProjectUpdates();
+  }
+  async function loadProjectUpdates(append=false){
+    const feed=document.getElementById('pu-feed');if(!feed)return;
+    const seq=++projectUpdateSeq,teamId=Number(state.currentTeamId),listId=projectUpdateListFilter;
+    if(!append){feed.innerHTML='<p>Loading updates…</p>';projectUpdateBefore=null;}
+    try{
+      const query=new URLSearchParams({team_id:String(teamId)});
+      if(listId)query.set('list_id',listId);
+      if(append&&projectUpdateBefore)query.set('before_id',String(projectUpdateBefore));
+      const data=await api('project_updates.php?'+query.toString());
+      if(seq!==projectUpdateSeq||state.currentView!=='project-updates'||Number(state.currentTeamId)!==teamId||projectUpdateListFilter!==listId)return;
+      if(!append)feed.innerHTML='';
+      for(const item of data.updates){
+        const status=Object.hasOwn(projectUpdateStatus,item.status)?item.status:'on_track';
+        const card=document.createElement('article');card.className='project-update-card';
+        card.innerHTML=`<div class="project-update-head"><span class="project-update-chip project-update-${status}">${projectUpdateStatus[status]}</span>
+          <span class="project-update-date">${esc(item.created_at)}</span></div>
+          <h3>${esc(item.list_name)}</h3><div class="project-update-meta">${esc(item.author_name)}</div>
+          <p class="project-update-text">${esc(item.summary)}</p>
+          ${item.next_steps?`<div class="project-update-next"><strong>Next steps</strong><p>${esc(item.next_steps)}</p></div>`:''}`;
+        feed.appendChild(card);
+      }
+      if(!feed.children.length)feed.innerHTML='<div class="empty-state"><h3>No updates yet</h3><p>Managers can publish the first project status report above.</p></div>';
+      projectUpdateBefore=data.next_before_id;
+      const more=document.getElementById('pu-more');
+      more.innerHTML=projectUpdateBefore?'<button type="button" class="btn btn-ghost">Load older updates</button>':'';
+      more.querySelector('button')?.addEventListener('click',()=>loadProjectUpdates(true));
+    }catch(err){
+      if(seq!==projectUpdateSeq||state.currentView!=='project-updates')return;
+      if(!append)feed.innerHTML=`<p class="load-error-box">${esc(err.message)}</p>`;
+      else toast(err.message,true);
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // MILESTONES: bounded list milestones and team-scoped task links
+  // ---------------------------------------------------------------
+  let milestoneListFilter = '';
+  let milestoneIncludeArchived = false;
+  let milestoneRows = [];
+  let milestoneNextOffset = null;
+  let milestoneSelectedId = null;
+  let milestoneDetailOffset = null;
+  let milestoneRequestSeq = 0;
+
+  function milestoneManager() { return iHave(['administrator', 'manager']); }
+  function milestoneHealthLabel(value) {
+    return {complete:'Complete', overdue:'Past target', at_risk:'At risk', on_track:'On track', unplanned:'Needs tasks', archived:'Archived'}[value] || 'Tracking';
+  }
+  function milestoneHealthClass(value) {
+    return ['complete','overdue','at_risk','on_track','unplanned','archived'].includes(value) ? value.replace('_','-') : 'unplanned';
+  }
+  function milestoneFormHtml(current = null) {
+    const listId = Number(current?.list_id || milestoneListFilter || state.currentListId || (state.lists[0] || {}).id);
+    return `<div class="milestone-form">
+      <label for="ms-input-list">Task list</label>
+      <select id="ms-input-list" ${current ? 'disabled' : ''}>${state.lists.map(l=>`<option value="${Number(l.id)}" ${Number(l.id)===listId?'selected':''}>${esc(l.name)}</option>`).join('')}</select>
+      <label for="ms-input-title">Milestone name</label><input id="ms-input-title" maxlength="150" required value="${esc(current?.title || '')}" placeholder="e.g. Launch ready">
+      <label for="ms-input-due">Target date (optional)</label><input id="ms-input-due" type="date" value="${esc(current?.due_date || '')}">
+      <label for="ms-input-description">Description (optional)</label><textarea id="ms-input-description" maxlength="2000" rows="3" placeholder="What must this milestone achieve?">${esc(current?.description || '')}</textarea>
+    </div>`;
+  }
+  function milestoneFormValues() {
+    const title = document.getElementById('ms-input-title').value.trim();
+    if (!title || new TextEncoder().encode(title).length > 150) throw new Error('Enter a milestone name no longer than 150 bytes.');
+    const description = document.getElementById('ms-input-description').value;
+    if (new TextEncoder().encode(description).length > 2000) throw new Error('Description is too long.');
+    return {list_id:Number(document.getElementById('ms-input-list').value),title,description,due_date:document.getElementById('ms-input-due').value || null};
+  }
+  function createMilestonePrompt() {
+    if (!state.lists.length) { toast('Create a task list first.', true); return; }
+    promptModal('New milestone', milestoneFormHtml(), async () => {
+      const values = milestoneFormValues();
+      const created = await api('milestones.php',{method:'POST',body:values});
+      milestoneSelectedId = Number(created.id);
+      milestoneListFilter = String(values.list_id);
+      toast('Milestone created');
+      await renderMilestones();
+    });
+  }
+  function editMilestonePrompt(row) {
+    promptModal('Edit milestone', milestoneFormHtml(row), async () => {
+      const body=milestoneFormValues();
+      delete body.list_id; // changing a milestone's list would corrupt task links
+      await api('milestones.php',{method:'PUT',body:{id:Number(row.id),...body}});
+      toast('Milestone updated');
+      milestoneSelectedId=Number(row.id);
+      await loadMilestoneCards(false);
+    });
+  }
+  async function renderMilestones() {
+    const container=document.getElementById('view-container');
+    if (!state.currentTeamId) { container.innerHTML=emptyTeamState(); return; }
+    if (milestoneListFilter && !state.lists.some(l=>Number(l.id)===Number(milestoneListFilter))) milestoneListFilter='';
+    document.getElementById('topbar-actions').innerHTML=milestoneManager()?'<button type="button" class="btn btn-primary" id="ms-new-top">+ New milestone</button>':'';
+    document.getElementById('ms-new-top')?.addEventListener('click',createMilestonePrompt);
+    container.innerHTML=`<section class="milestone-intro"><div><span class="milestone-eyebrow">DELIVERY PLANNING</span>
+      <h2>Know what is ready for the next milestone.</h2><p>Set target dates, link list tasks, and follow progress. Only managers can change milestones or task links.</p></div>
+      <div class="milestone-intro-art" aria-hidden="true"><span>01</span><span>02</span><span>03</span></div></section>
+      <div class="milestone-toolbar"><label for="ms-filter-list">Task list <select id="ms-filter-list"><option value="">All lists</option>${state.lists.map(l=>`<option value="${Number(l.id)}" ${Number(l.id)===Number(milestoneListFilter)?'selected':''}>${esc(l.name)}</option>`).join('')}</select></label>
+      <label class="milestone-archived-toggle"><input type="checkbox" id="ms-show-archived" ${milestoneIncludeArchived?'checked':''}> Include archived</label></div>
+      <div id="ms-summary" class="milestone-summary" aria-live="polite"></div>
+      <div id="ms-cards" class="milestone-grid" aria-live="polite"><p>Loading milestones...</p></div>
+      <div id="ms-load-more-wrap" class="milestone-more"></div>
+      <div id="ms-detail" aria-live="polite"></div>`;
+    container.querySelector('#ms-filter-list').addEventListener('change',e=>{
+      milestoneListFilter=e.target.value;milestoneSelectedId=null;loadMilestoneCards(false);
+    });
+    container.querySelector('#ms-show-archived').addEventListener('change',e=>{
+      milestoneIncludeArchived=e.target.checked;milestoneSelectedId=null;loadMilestoneCards(false);
+    });
+    await loadMilestoneCards(false);
+  }
+  async function loadMilestoneCards(append=false) {
+    const seq=++milestoneRequestSeq;
+    const teamId=Number(state.currentTeamId);
+    const params=new URLSearchParams({team_id:String(teamId),offset:String(append?(milestoneNextOffset||0):0),include_archived:milestoneIncludeArchived?'1':'0'});
+    if(milestoneListFilter)params.set('list_id',milestoneListFilter);
+    const cards=document.getElementById('ms-cards');
+    if(!cards)return;
+    if(!append){cards.innerHTML='<p>Loading milestones...</p>';document.getElementById('ms-detail').innerHTML='';}
+    try {
+      const response=await api('milestones.php?'+params);
+      if(seq!==milestoneRequestSeq||state.currentView!=='milestones'||Number(state.currentTeamId)!==teamId)return;
+      milestoneRows=append?milestoneRows.concat(response.milestones):response.milestones;
+      milestoneNextOffset=response.next_offset;
+      const late=milestoneRows.filter(m=>['overdue','at_risk'].includes(m.health)).length;
+      const completed=milestoneRows.filter(m=>m.health==='complete').length;
+      document.getElementById('ms-summary').innerHTML=`<div><strong>${milestoneRows.length}</strong><span>Loaded milestones</span></div><div><strong>${completed}</strong><span>Complete</span></div><div><strong>${late}</strong><span>Need attention</span></div>`;
+      cards.innerHTML=milestoneRows.length?milestoneRows.map(m=>{
+        const total=Number(m.total_tasks),done=Number(m.done_tasks),percent=Number(m.progress_percent);
+        return `<article class="milestone-card ${Number(m.id)===milestoneSelectedId?'milestone-selected':''}">
+          <div class="milestone-card-top"><span class="milestone-list-name">${esc(m.list_name)}</span><span class="milestone-health milestone-health-${milestoneHealthClass(m.health)}">${milestoneHealthLabel(m.health)}</span></div>
+          <h3>${esc(m.title)}</h3><p class="milestone-description">${esc(m.description||'No description yet.')}</p>
+          <div class="milestone-progress-label"><span>${done} of ${total} tasks done</span><strong>${percent}%</strong></div>
+          <div class="milestone-progress" role="progressbar" aria-label="${esc(m.title)} progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}"><span style="width:${percent}%"></span></div>
+          <div class="milestone-card-footer"><span>${m.due_date?'Target '+fmtDate(m.due_date):'No target date'}</span><button type="button" class="btn btn-ghost" data-ms-open="${Number(m.id)}">View tasks</button></div>
+        </article>`;
+      }).join(''):'<div class="empty-state"><h3>No milestones here</h3><p>Managers can add a milestone for any task list in this team.</p></div>';
+      cards.querySelectorAll('[data-ms-open]').forEach(btn=>btn.addEventListener('click',()=>openMilestoneDetail(Number(btn.dataset.msOpen))));
+      document.getElementById('ms-load-more-wrap').innerHTML=milestoneNextOffset!==null?'<button type="button" class="btn btn-ghost" id="ms-more">Load more milestones</button>':'';
+      document.getElementById('ms-more')?.addEventListener('click',()=>loadMilestoneCards(true));
+      if(milestoneSelectedId && milestoneRows.some(r=>Number(r.id)===milestoneSelectedId)) await openMilestoneDetail(milestoneSelectedId,false);
+    } catch(err){if(seq===milestoneRequestSeq)cards.innerHTML=`<div class="load-error-box"><p>${esc(err.message)}</p><button class="btn btn-ghost" id="ms-retry">Try again</button></div>`;document.getElementById('ms-retry')?.addEventListener('click',()=>loadMilestoneCards(false));}
+  }
+  async function openMilestoneDetail(id,scroll=true,append=false) {
+    const detail=document.getElementById('ms-detail');
+    if(!detail)return;
+    const row=milestoneRows.find(m=>Number(m.id)===Number(id));
+    if(!row)return;
+    if(!append) {milestoneSelectedId=id;milestoneDetailOffset=null;detail.innerHTML='<p>Loading milestone tasks...</p>';}
+    const selected=id;
+    try {
+      const response=await api('milestones.php?'+new URLSearchParams({milestone_id:String(id),offset:String(append?(milestoneDetailOffset||0):0)}));
+      if(state.currentView!=='milestones'||milestoneSelectedId!==selected)return;
+      const tasks=response.tasks||[];
+      milestoneDetailOffset=response.next_offset;
+      if(!append){
+        detail.innerHTML=`<section class="milestone-detail-card"><div class="milestone-detail-header"><div><span class="milestone-eyebrow">${esc(row.list_name)}</span><h2>${esc(row.title)}</h2><p>${row.due_date?'Target '+fmtDate(row.due_date):'No target date'} · ${Number(row.done_tasks)} of ${Number(row.total_tasks)} tasks complete</p></div>
+          <button type="button" class="btn btn-ghost" id="ms-close-detail" aria-label="Close milestone detail">Close</button></div>
+          ${milestoneManager()?`<div class="milestone-actions"><button class="btn btn-ghost" id="ms-edit">Edit</button><button class="btn btn-ghost" id="ms-archive">${Number(row.is_archived)?'Restore':'Archive'}</button><button class="btn btn-ghost milestone-delete" id="ms-delete">Delete milestone</button></div>`:''}
+          <div class="milestone-detail-list" id="ms-task-list"></div><div id="ms-task-more"></div>
+          ${milestoneManager()&&!Number(row.is_archived)?`<div class="milestone-add"><label for="ms-task-search">Link a task from ${esc(row.list_name)}</label><input id="ms-task-search" type="search" maxlength="120" autocomplete="off" placeholder="Search tasks to link (2+ characters)"><div id="ms-task-results" aria-live="polite"></div></div>`:''}
+          </section>`;
+        detail.querySelector('#ms-close-detail').addEventListener('click',()=>{milestoneSelectedId=null;detail.innerHTML='';});
+        detail.querySelector('#ms-edit')?.addEventListener('click',()=>editMilestonePrompt(row));
+        detail.querySelector('#ms-archive')?.addEventListener('click',async()=>{
+          try {await api('milestones.php',{method:'PUT',body:{id:Number(row.id),is_archived:!Number(row.is_archived)}});toast(Number(row.is_archived)?'Milestone restored':'Milestone archived');milestoneSelectedId=null;loadMilestoneCards(false);}
+          catch(err){toast(err.message,true);}
+        });
+        detail.querySelector('#ms-delete')?.addEventListener('click',async()=>{
+          if(!confirm('Delete this milestone? Linked tasks will stay in their lists.'))return;
+          try {await api('milestones.php',{method:'DELETE',body:{id:Number(row.id)}});toast('Milestone deleted');milestoneSelectedId=null;loadMilestoneCards(false);}
+          catch(err){toast(err.message,true);}
+        });
+        const search=detail.querySelector('#ms-task-search');
+        if(search){
+          let serial=0,timer;
+          search.addEventListener('input',()=>{
+            const q=search.value.trim();const target=detail.querySelector('#ms-task-results');
+            clearTimeout(timer);const current=++serial;
+            if(q.length<2){target.textContent='';return;}
+            timer=setTimeout(async()=>{
+              try{
+                const data=await api('search.php?'+new URLSearchParams({team_id:String(state.currentTeamId),list_id:String(row.list_id),q,limit:'15'}));
+                if(current!==serial||milestoneSelectedId!==selected||!search.isConnected)return;
+                target.innerHTML=data.tasks.length?data.tasks.map(t=>`<button type="button" class="milestone-search-result" data-ms-add="${Number(t.id)}"><strong>${esc(t.title)}</strong><small>${esc(t.status.replaceAll('_',' '))}</small></button>`).join(''):'<p class="milestone-note">No matching tasks.</p>';
+                target.querySelectorAll('[data-ms-add]').forEach(btn=>btn.addEventListener('click',async()=>{
+                  btn.disabled=true;
+                  try {await api('milestone_tasks.php',{method:'POST',body:{milestone_id:Number(row.id),task_id:Number(btn.dataset.msAdd)}});toast('Task linked');await loadMilestoneCards(false);}
+                  catch(err){toast(err.message,true);btn.disabled=false;}
+                }));
+              }catch(err){if(current===serial)target.textContent=err.message;}
+            },250);
+          });
+        }
+      }
+      const list=detail.querySelector('#ms-task-list');
+      if(!list)return;
+      const html=tasks.map(t=>`<div class="milestone-task-row">
+        <button type="button" data-ms-task="${Number(t.id)}" class="milestone-task-open"><span class="milestone-task-check ${t.status==='done'?'is-done':''}" aria-hidden="true">${t.status==='done'?'&#10003;':''}</span><span>${esc(t.title)}</span></button>
+        <span class="milestone-task-status">${esc(t.status.replaceAll('_',' '))}</span>
+        ${milestoneManager()?`<button type="button" class="btn btn-ghost" data-ms-remove="${Number(t.id)}" aria-label="Unlink ${esc(t.title)}">Unlink</button>`:''}
+      </div>`).join('');
+      if(append)list.insertAdjacentHTML('beforeend',html);
+      else list.innerHTML=html||'<p class="milestone-note">No tasks linked yet. Managers can search and link tasks from this list.</p>';
+      list.querySelectorAll('[data-ms-task]').forEach(btn=>btn.onclick=()=>openTaskModal(Number(btn.dataset.msTask)));
+      list.querySelectorAll('[data-ms-remove]').forEach(btn=>btn.onclick=async()=>{
+        try {await api('milestone_tasks.php',{method:'DELETE',body:{milestone_id:Number(row.id),task_id:Number(btn.dataset.msRemove)}});toast('Task unlinked');await loadMilestoneCards(false);}
+        catch(err){toast(err.message,true);}
+      });
+      detail.querySelector('#ms-task-more').innerHTML=milestoneDetailOffset!==null?'<button type="button" class="btn btn-ghost" id="ms-task-more-btn">Load more tasks</button>':'';
+      detail.querySelector('#ms-task-more-btn')?.addEventListener('click',()=>openMilestoneDetail(id,false,true));
+      if(scroll)detail.scrollIntoView({behavior:'smooth',block:'start'});
+    } catch(err){if(!append)detail.textContent='Could not load milestone tasks: '+err.message;else toast(err.message,true);}
+  }
 
   // ---------------------------------------------------------------
   // MONTHLY VIEW (year broken into weeks, departments horizontal)
@@ -585,6 +991,255 @@
   }
 
   // ---------------------------------------------------------------
+  // ---------------------------------------------------------------
+  // Project timeline — date ranges, milestones, team-scoped keyset pages
+  // ---------------------------------------------------------------
+  let timelineCursor = null;
+  let timelineRequestSeq = 0;
+  function timelineDownloadUrl() {
+    const qs = new URLSearchParams({team_id:String(state.currentTeamId),month:state.timelineMonth,
+      days:String(state.timelineDays),mine:state.timelineMine?'1':'0'});
+    if (state.timelineListId) qs.set('list_id',String(state.timelineListId));
+    return 'api/calendar_export.php?' + qs;
+  }
+  function timelineBar(row,window) {
+    const start = row.start_date || row.due_date;
+    const end = row.due_date || row.start_date;
+    if (!start || !end) return '';
+    const origin = Date.parse(window.start + 'T00:00:00Z');
+    const length = 86400000 * Number(window.days);
+    const a = Date.parse(start + 'T00:00:00Z');
+    const b = Date.parse(end + 'T00:00:00Z');
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return '';
+    const left = Math.max(0, Math.min(99.5, (Math.min(a,b) - origin) / length * 100));
+    const right = Math.max(0, Math.min(100, (Math.max(a,b) - origin) / length * 100 + 100 / Number(window.days)));
+    const width = Math.max(1, right - left);
+    const status = ['done','to_do','in_progress','review'].includes(row.status) ? row.status : 'to_do';
+    return `<button type="button" class="timeline-bar timeline-bar-${status}" data-timeline-open="${Number(row.id)}"
+      style="left:${left.toFixed(3)}%;width:${width.toFixed(3)}%" title="${esc(row.title)}: ${esc(start)} to ${esc(end)}"
+      aria-label="Open ${esc(row.title)}"></button>`;
+  }
+  async function renderTimeline() {
+    const container = document.getElementById('view-container');
+    if (!state.currentTeamId) {container.innerHTML=emptyTeamState();return;}
+    if (!state.lists.some(l => Number(l.id) === Number(state.timelineListId))) state.timelineListId = 0;
+    container.innerHTML = `<section class="timeline-shell"><div class="milestone-eyebrow">DELIVERY ROADMAP</div>
+      <h2>See your work over time</h2><p class="calendar-hint">Task bars span start to due date; milestone diamonds mark delivery targets. Open any task to update its dates.</p>
+      <div class="timeline-tools">
+        <label>Starting month<input type="month" id="timeline-month" min="2000-01" max="2099-12" value="${esc(state.timelineMonth)}"></label>
+        <label>Window<select id="timeline-days"><option value="28" ${state.timelineDays===28?'selected':''}>4 weeks</option>
+          <option value="56" ${state.timelineDays===56?'selected':''}>8 weeks</option><option value="84" ${state.timelineDays===84?'selected':''}>12 weeks</option></select></label>
+        <label>Project<select id="timeline-list"><option value="0">All projects</option>${state.lists.map(l=>`<option value="${Number(l.id)}" ${Number(l.id)===Number(state.timelineListId)?'selected':''}>${esc(l.name)}</option>`).join('')}</select></label>
+        <label class="calendar-mine"><input type="checkbox" id="timeline-mine" ${state.timelineMine?'checked':''}> My tasks</label>
+        <a class="btn btn-ghost" id="timeline-export" href="${esc(timelineDownloadUrl())}" download="taskflow-calendar.ics">Export calendar (.ics)</a>
+      </div>
+      <div class="timeline-summary" id="timeline-summary" aria-live="polite">Loading roadmap…</div>
+      <div class="timeline-scroll" tabindex="0" aria-label="Scrollable project timeline">
+        <div class="timeline-table" id="timeline-table"></div>
+      </div>
+      <div class="portfolio-more" id="timeline-more"></div>
+      <p class="calendar-hint">Calendar downloads are snapshots, not automatic subscriptions. The export includes all visible-period due dates and project milestones, with your team access enforced on the server.</p></section>`;
+    const refresh=()=>{document.getElementById('timeline-export').href=timelineDownloadUrl(); timelineCursor=null;loadTimeline(false);};
+    document.getElementById('timeline-month').addEventListener('change',event=>{if (!/^20\d\d-(0[1-9]|1[0-2])$/.test(event.target.value)) return;state.timelineMonth=event.target.value;refresh();});
+    document.getElementById('timeline-days').addEventListener('change',event=>{state.timelineDays=Number(event.target.value);refresh();});
+    document.getElementById('timeline-list').addEventListener('change',event=>{state.timelineListId=Number(event.target.value);refresh();});
+    document.getElementById('timeline-mine').addEventListener('change',event=>{state.timelineMine=event.target.checked;refresh();});
+    container.querySelector('#timeline-table').addEventListener('click',event=>{
+      const task=event.target.closest('[data-timeline-open]');
+      if (task) {openTaskModal(Number(task.dataset.timelineOpen));return;}
+      const milestone=event.target.closest('[data-timeline-milestone]');
+      if (milestone) {milestoneSelectedId=Number(milestone.dataset.timelineMilestone);milestoneListFilter='';setView('milestones');}
+    });
+    container.querySelector('#timeline-more').addEventListener('click',event=>{
+      if(event.target.closest('#timeline-more-btn'))loadTimeline(true);
+    });
+    timelineCursor=null;
+    await loadTimeline(false);
+  }
+  async function loadTimeline(append=false) {
+    const seq=++timelineRequestSeq;
+    const team=Number(state.currentTeamId);
+    const cursor=append?timelineCursor:null;
+    const table=document.getElementById('timeline-table');
+    const summary=document.getElementById('timeline-summary');
+    if(!table || !summary || (!append && state.currentView!=='timeline'))return;
+    const qs=new URLSearchParams({team_id:String(team),month:state.timelineMonth,days:String(state.timelineDays),
+      mine:state.timelineMine?'1':'0',after_id:String(cursor||0)});
+    if(state.timelineListId)qs.set('list_id',String(state.timelineListId));
+    try {
+      const data=await api('timeline.php?'+qs);
+      if(seq!==timelineRequestSeq || state.currentView!=='timeline' || Number(state.currentTeamId)!==team)return;
+      const win=data.window;
+      if(!append){
+        const origin=Date.parse(win.start+'T00:00:00Z');
+        const ticks=Array.from({length:Number(win.days)/7},(_,i)=>{
+          const date=new Date(origin+i*7*86400000);
+          return `<span>${esc(date.toLocaleDateString(undefined,{month:'short',day:'numeric',timeZone:'UTC'}))}</span>`;
+        });
+        table.innerHTML=`<div class="timeline-header"><div>Projects &amp; tasks</div><div class="timeline-ticks">${ticks.join('')}</div></div><div id="timeline-rows"></div>`;
+        const markers=(data.milestones||[]).map(m=>{
+          const date=Date.parse(m.due_date+'T00:00:00Z');
+          const left=Math.min(99.5,Math.max(0,((date-origin)/(86400000*Number(win.days)))*100));
+          return `<div class="timeline-row timeline-milestone-row"><div class="timeline-row-info"><span class="timeline-subtitle">${esc(m.list_name)}</span>
+             <button type="button" class="timeline-row-link" data-timeline-milestone="${Number(m.id)}">◆ ${esc(m.title)}</button></div>
+             <div class="timeline-track" style="background-size:${(700/Number(win.days)).toFixed(3)}% 100%"><button type="button" class="timeline-diamond" data-timeline-milestone="${Number(m.id)}" style="left:${left.toFixed(3)}%" title="${esc(m.title)} — ${esc(m.due_date)}" aria-label="Open milestone ${esc(m.title)}"></button></div></div>`;
+        });
+        if(markers.length)table.querySelector('#timeline-rows').insertAdjacentHTML('beforeend',markers.join(''));
+      }
+      const rows=table.querySelector('#timeline-rows');
+      const cards=(data.tasks||[]).map(task=>`<div class="timeline-row"><div class="timeline-row-info"><span class="timeline-subtitle">${esc(task.list_name)} · ${esc(task.status.replaceAll('_',' '))}</span>
+        <button type="button" class="timeline-row-link" data-timeline-open="${Number(task.id)}">${esc(task.title)}</button></div>
+        <div class="timeline-track" style="background-size:${(700/Number(win.days)).toFixed(3)}% 100%">${timelineBar(task,win)}</div></div>`);
+      rows.insertAdjacentHTML('beforeend',cards.join(''));
+      timelineCursor=data.next_after_id;
+      const more=document.getElementById('timeline-more');
+      more.innerHTML=timelineCursor?'<button type="button" class="btn btn-ghost" id="timeline-more-btn">Load more tasks</button>':'';
+      const total=rows.querySelectorAll('.timeline-row:not(.timeline-milestone-row)').length;
+      const countMilestones=rows.querySelectorAll('.timeline-milestone-row').length;
+      summary.textContent=`${total} tasks and ${countMilestones} milestones shown · ${win.start} to ${win.end}`+
+        (data.milestones_truncated?' · Showing first 100 milestones; narrow your project filter.':'')+
+        (timelineCursor?' · More tasks available.':'');
+      if(!rows.children.length)rows.innerHTML='<div class="timeline-empty">No scheduled tasks or milestones in this period. Set start and due dates on tasks, or change the date window.</div>';
+    }catch(err){
+      if(seq!==timelineRequestSeq || state.currentView!=='timeline')return;
+      summary.textContent='Unable to load project timeline.';
+      if(!append)table.innerHTML=`<div class="load-error-box">${esc(err.message)}</div>`;
+      toast(err.message,true);
+    }
+  }
+
+  // Calendar — bounded team-scoped due dates, responsive agenda on mobile
+  // ---------------------------------------------------------------
+  async function renderCalendar() {
+    const container = document.getElementById('view-container');
+    if (!state.currentTeamId) { container.innerHTML = emptyTeamState(); return; }
+    const teamId = state.currentTeamId;
+    const month = state.calendarMonth;
+    container.innerHTML = `<div class="calendar-toolbar">
+      <div class="calendar-controls"><button type="button" class="btn btn-ghost" id="calendar-previous" aria-label="Previous month">←</button>
+      <h2 id="calendar-month-label"></h2><button type="button" class="btn btn-ghost" id="calendar-next" aria-label="Next month">→</button>
+      <button type="button" class="btn btn-ghost" id="calendar-today">Today</button></div>
+      <label class="calendar-mine"><input type="checkbox" id="calendar-mine" ${state.calendarMine?'checked':''}> Only my tasks</label>
+      <a class="btn btn-ghost" href="${esc('api/calendar_export.php?' + new URLSearchParams({team_id:String(teamId),month,days:'56',mine:state.calendarMine?'1':'0'}))}" download="taskflow-calendar.ics">Export .ics</a></div>
+      <p id="calendar-status" class="calendar-hint" role="status">Loading dates…</p>
+      <div id="calendar-grid" class="calendar-grid" aria-label="Team task calendar"></div>
+      <div id="calendar-agenda" class="calendar-agenda" aria-label="Due date agenda"></div>`;
+    const shiftMonth = offset => {
+      const [year,mon] = state.calendarMonth.split('-').map(Number);
+      const next = new Date(Date.UTC(year, mon - 1 + offset, 1));
+      state.calendarMonth = next.getUTCFullYear() + '-' + String(next.getUTCMonth()+1).padStart(2,'0');
+      renderCalendar();
+    };
+    container.querySelector('#calendar-previous').addEventListener('click', () => shiftMonth(-1));
+    container.querySelector('#calendar-next').addEventListener('click', () => shiftMonth(1));
+    container.querySelector('#calendar-today').addEventListener('click', () => {
+      const today = new Date(); state.calendarMonth = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0'); renderCalendar();
+    });
+    container.querySelector('#calendar-mine').addEventListener('change', e => { state.calendarMine = e.target.checked; renderCalendar(); });
+    try {
+      const data = await api('calendar.php?' + new URLSearchParams({team_id:String(teamId), month, mine:state.calendarMine?'1':'0'}));
+      if (state.currentView !== 'calendar' || state.currentTeamId !== teamId || state.calendarMonth !== month || !container.querySelector('#calendar-grid')) return;
+      const [year, m] = month.split('-').map(Number);
+      const first = new Date(Date.UTC(year,m-1,1));
+      container.querySelector('#calendar-month-label').textContent = first.toLocaleDateString(undefined, {month:'long',year:'numeric',timeZone:'UTC'});
+      const tasksByDay = new Map();
+      for (const task of data.tasks) {
+        if (!tasksByDay.has(task.due_date)) tasksByDay.set(task.due_date, []);
+        tasksByDay.get(task.due_date).push(task);
+      }
+      const todayStr = [new Date().getFullYear(),String(new Date().getMonth()+1).padStart(2,'0'),String(new Date().getDate()).padStart(2,'0')].join('-');
+      const weekdayHeader = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div class="calendar-weekday">${d}</div>`).join('');
+      let grid = weekdayHeader;
+      for (let index=0; index<42; index++) {
+        const date = new Date(data.start+'T00:00:00Z');
+        date.setUTCDate(date.getUTCDate()+index);
+        const iso = date.toISOString().slice(0,10);
+        const dayTasks = tasksByDay.get(iso) || [];
+        const outside = iso.slice(0,7)!==month;
+        grid += `<div class="calendar-day ${outside?'calendar-outside':''} ${iso===todayStr?'calendar-today':''}" aria-label="${esc(iso)}">
+          <div class="calendar-day-number">${date.getUTCDate()}${iso===todayStr?'<span>Today</span>':''}</div>
+          <div class="calendar-day-tasks">${dayTasks.slice(0,4).map(t=>`<button type="button" class="calendar-event ${t.status==='done'?'calendar-done':''}" data-task-id="${Number(t.id)}" title="${esc(t.title)}">${esc(t.title)}</button>`).join('')}
+          ${dayTasks.length>4?`<small class="calendar-more">+${dayTasks.length-4} more</small>`:''}</div></div>`;
+      }
+      container.querySelector('#calendar-grid').innerHTML=grid;
+      const monthTasks=data.tasks.filter(t=>t.due_date && t.due_date.slice(0,7)===month);
+      container.querySelector('#calendar-agenda').innerHTML=monthTasks.length ? `<h3>Due this month</h3><div class="calendar-agenda-list">${monthTasks.map(t=>`<button type="button" class="calendar-agenda-item" data-task-id="${Number(t.id)}"><time>${esc(fmtDate(t.due_date))}</time><strong>${esc(t.title)}</strong><span>${esc(t.list_name)}</span><span class="status-pill status-${esc(t.status)}">${esc(t.status.replaceAll('_',' '))}</span></button>`).join('')}</div>` : '<p class="calendar-empty">Nothing is due this month.</p>';
+      container.querySelector('#calendar-status').textContent = data.truncated ? 'Showing the first 400 tasks for these dates. Narrow the view with “Only my tasks”.' : `${monthTasks.length} task${monthTasks.length===1?'':'s'} due this month`;
+      container.querySelectorAll('[data-task-id]').forEach(el=>el.addEventListener('click',()=>openTaskModal(Number(el.dataset.taskId))));
+    } catch (e) { if (state.currentView==='calendar') container.querySelector('#calendar-status').textContent='Could not load calendar: '+e.message; }
+  }
+
+  // ---------------------------------------------------------------
+  // Templates — team-scoped reusable work, manager maintained
+  // ---------------------------------------------------------------
+  async function renderTemplates() {
+    const container=document.getElementById('view-container');
+    if (!state.currentTeamId) { container.innerHTML=emptyTeamState(); return; }
+    const teamId=state.currentTeamId;
+    const canManage=iHave(['administrator','manager']);
+    document.getElementById('topbar-actions').innerHTML=canManage?'<button type="button" class="btn btn-primary" id="new-template-button">+ New template</button>':'';
+    document.getElementById('new-template-button')?.addEventListener('click',()=>editTemplate(null));
+    container.innerHTML='<p class="template-hint">Loading team templates…</p>';
+    try {
+      const data=await api('templates.php?team_id='+teamId);
+      if (state.currentView!=='templates' || state.currentTeamId!==teamId) return;
+      const templates=data.templates || [];
+      container.innerHTML=`<div class="feature-intro"><h2>Start with a proven workflow</h2><p>Use a template to create a task with its checklist. Due dates and assignments are always new.</p></div>
+        ${data.truncated?'<p class="template-hint">Showing the first 100 templates.</p>':''}
+        <div class="template-grid">${templates.map(t=>`<article class="template-card"><div class="template-card-top"><span class="template-flag">REUSABLE</span><span class="priority-pill priority-${esc(t.priority)}">${esc(t.priority)}</span></div>
+          <h3>${esc(t.title)}</h3><p>${esc((t.description||'').slice(0,280))}</p>${t.estimate_minutes?`<div class="template-estimate">Estimated: ${hoursText(t.estimate_minutes)}</div>`:''}<div class="template-item-preview">${(t.items||[]).slice(0,3).map(i=>`<div><span aria-hidden="true">☐</span>${esc(i)}</div>`).join('')}${(t.items||[]).length>3?`<small>+${t.items.length-3} more checklist items</small>`:''}</div>
+          <div class="template-actions"><button type="button" class="btn btn-primary" data-use-template="${Number(t.id)}">Use template</button>
+          ${canManage?`<button type="button" class="btn btn-ghost" data-edit-template="${Number(t.id)}">Edit</button><button type="button" class="btn btn-ghost" data-delete-template="${Number(t.id)}">Delete</button>`:''}</div></article>`).join('') || '<div class="empty-state"><h3>No templates yet</h3><p>A manager can create reusable checklists for this team.</p></div>'}</div>`;
+      container.querySelectorAll('[data-use-template]').forEach(btn=>btn.addEventListener('click',()=>useTemplate(templates.find(t=>Number(t.id)===Number(btn.dataset.useTemplate)))));
+      container.querySelectorAll('[data-edit-template]').forEach(btn=>btn.addEventListener('click',()=>editTemplate(templates.find(t=>Number(t.id)===Number(btn.dataset.editTemplate)))));
+      container.querySelectorAll('[data-delete-template]').forEach(btn=>btn.addEventListener('click',async()=>{
+        if (!confirm('Delete this template? Existing tasks will be unchanged.')) return;
+        try {await api('templates.php',{method:'DELETE',body:{id:Number(btn.dataset.deleteTemplate)}}); toast('Template deleted');renderTemplates();}
+        catch(e){toast(e.message,true);}
+      }));
+    } catch(e){if(state.currentView==='templates') container.innerHTML=`<div class="load-error-box">Could not load templates: ${esc(e.message)}<button type="button" class="btn btn-ghost" id="template-retry">Retry</button></div>`;
+      document.getElementById('template-retry')?.addEventListener('click',renderTemplates);}
+  }
+
+  function editTemplate(template) {
+    const isEditing=!!template;
+    promptModal(isEditing?'Edit template':'New task template', `
+      <p class="template-hint">For your current team. Each line becomes an unchecked checklist item (up to 30).</p>
+      <label for="p-template-title">Template name</label><input id="p-template-title" maxlength="255" required value="${esc(template?.title || '')}" placeholder="e.g. Weekly client review">
+      <label for="p-template-desc">Description</label><textarea id="p-template-desc" maxlength="5000" placeholder="Instructions or context">${esc(template?.description || '')}</textarea>
+      <label for="p-template-priority">Default priority</label><select id="p-template-priority">${['none','low','normal','high','urgent'].map(p=>`<option value="${p}" ${p===(template?.priority||'normal')?'selected':''}>${p}</option>`).join('')}</select>
+      <label for="p-template-estimate">Estimated effort (hours, optional)</label><input type="number" id="p-template-estimate" min="0.0167" max="400" step="any" value="${hoursInput(template?.estimate_minutes)}" placeholder="e.g. 2.5">
+      <label for="p-template-items">Checklist, one item per line</label><textarea id="p-template-items" rows="5" placeholder="Prepare brief&#10;Get approval&#10;Share updates">${esc((template?.items||[]).join('\n'))}</textarea>
+    `,async()=>{
+      const title=document.getElementById('p-template-title').value.trim();
+      if(!title) throw new Error('Enter a template name.');
+      const items=document.getElementById('p-template-items').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+      if(items.length>30) throw new Error('A template supports up to 30 checklist items.');
+      await api('templates.php',{method:isEditing?'PUT':'POST',body:{...(isEditing?{id:Number(template.id)}:{team_id:state.currentTeamId}),
+        title,description:document.getElementById('p-template-desc').value,priority:document.getElementById('p-template-priority').value,estimate_minutes:readEstimateHours('p-template-estimate'),items}});
+      toast(isEditing?'Template updated':'Template created');renderTemplates();
+    });
+  }
+
+  function useTemplate(template) {
+    if (!template) return;
+    if (!state.lists.length) { toast('Ask your manager to create a task list first.',true); return; }
+    promptModal('Create task from template', `
+      <p class="template-hint">${esc(template.title)} • ${(template.items||[]).length} checklist items</p>
+      <label for="p-use-title">Task title</label><input id="p-use-title" maxlength="255" value="${esc(template.title)}" required>
+      <label for="p-use-list">Task list</label><select id="p-use-list">${state.lists.map(l=>`<option value="${Number(l.id)}">${esc(l.name)}</option>`).join('')}</select>
+      <label for="p-use-due">Due date (optional)</label><input type="date" id="p-use-due">
+      <label class="repeat-field"><input type="checkbox" id="p-use-repeat"> Repeat weekly after completion</label>
+    `,async()=>{
+      const title=document.getElementById('p-use-title').value.trim();if(!title) throw new Error('Enter a task title.');
+      const result=await api('tasks.php',{method:'POST',body:{template_id:Number(template.id),list_id:Number(document.getElementById('p-use-list').value),
+        title,due_date:document.getElementById('p-use-due').value,is_recurring_weekly:document.getElementById('p-use-repeat').checked,
+        assignee_ids:iHave(['administrator','manager'])?[]:[Number(state.user.id)]}});
+      toast('Task created from template');openTaskModal(result.id);
+    });
+  }
+
+  // ---------------------------------------------------------------
   // TASKS VIEW — tabs: Add Task / View Tasks / Pending / Completed
   // ---------------------------------------------------------------
   async function renderTasksView() {
@@ -648,7 +1303,7 @@
       btn.addEventListener('click', () => { state.taskTab = btn.dataset.tab; renderTasksView(); });
     });
 
-    if (state.members.length === 0 || state.members[0].teamIdLoaded !== state.currentTeamId) {
+    if (state.members.length === 0 || state.members.teamIdLoaded !== state.currentTeamId) {
       try {
         const md = await api('users.php');
         state.members = md.users;
@@ -675,28 +1330,52 @@
 
     body.innerHTML = `
       <form id="add-task-form" class="add-task-form">
-        <div class="field-group"><label>Title</label><input type="text" id="at-title" required placeholder="Task title"></div>
+        <div class="field-group"><label for="at-template">Start from a template <span class="muted-label">optional</span></label><select id="at-template"><option value="">Blank task</option></select></div>
+        <div class="field-group"><label for="at-title">Title</label><input type="text" id="at-title" required maxlength="255" placeholder="Task title"></div>
         <div class="field-group"><label>Description</label><textarea id="at-desc" placeholder="Optional details"></textarea></div>
         <div class="field-row">
           <div class="field-group"><label>Priority</label>
             <select id="at-priority">${['none','low','normal','high','urgent'].map(p => `<option value="${p}">${p}</option>`).join('')}</select>
           </div>
           <div class="field-group"><label>Due date</label><input type="date" id="at-due"></div>
+          <div class="field-group"><label for="at-estimate">Estimated effort (hours)</label><input type="number" id="at-estimate" min="0.0167" max="400" step="any" placeholder="e.g. 3"></div>
+          <div class="field-group"><label for="at-repeat-rule">Repeat after completion</label><select id="at-repeat-rule"><option value="none">Does not repeat</option><option value="daily">Every day</option><option value="weekly">Every week</option><option value="biweekly">Every two weeks</option><option value="monthly">Every month</option></select></div>
           ${canAssignOthers ? `<div class="field-group"><label>Assign to</label><select id="at-assignees" multiple size="3">${assigneeOptions}</select></div>` : ''}
         </div>
         <button type="submit" class="btn btn-primary">Create task</button>
       </form>
     `;
+    // Render the form immediately, then fetch team templates without blocking task creation.
+    const formTeamId = state.currentTeamId;
+    api('templates.php?team_id=' + formTeamId).then(data => {
+      const sel = document.getElementById('at-template');
+      if (!sel || formTeamId !== state.currentTeamId) return;
+      const templateMap = new Map((data.templates || []).map(t => [String(t.id),t]));
+      sel.innerHTML = '<option value="">Blank task</option>' + (data.templates || []).map(t => `<option value="${Number(t.id)}">${esc(t.title)}</option>`).join('');
+      sel.addEventListener('change', () => {
+        const tmpl = templateMap.get(sel.value);
+        if (!tmpl) return;
+        document.getElementById('at-title').value = tmpl.title;
+        document.getElementById('at-desc').value = tmpl.description || '';
+        document.getElementById('at-priority').value = tmpl.priority;
+        document.getElementById('at-estimate').value = hoursInput(tmpl.estimate_minutes);
+      });
+    }).catch(() => {/* new task stays available without templates */});
     document.getElementById('add-task-form').addEventListener('submit', async e => {
       e.preventDefault();
       const title = document.getElementById('at-title').value.trim();
       if (!title) return;
+      let estimateMinutes;
+      try { estimateMinutes = readEstimateHours('at-estimate'); } catch(err) { toast(err.message,true); return; }
       const body = {
         list_id: state.currentListId, title,
         description: document.getElementById('at-desc').value,
-        priority: document.getElementById('at-priority').value,
+        priority: document.getElementById('at-priority').value, estimate_minutes: estimateMinutes,
         due_date: document.getElementById('at-due').value,
+        recurrence_rule: document.getElementById('at-repeat-rule').value,
       };
+      const chosenTemplate = document.getElementById('at-template').value;
+      if (chosenTemplate) body.template_id = Number(chosenTemplate);
       if (canAssignOthers) {
         body.assignee_ids = Array.from(document.getElementById('at-assignees').selectedOptions).map(o => Number(o.value));
       } else {
@@ -806,7 +1485,7 @@
           const response = await api('bulk.php',{ method:'POST',body:{
             team_id:Number(state.currentTeamId), task_ids:Array.from(bulkSelectedTasks),field,value
           }});
-          toast(`${response.changed} task(s) changed`);
+          toast(`${response.changed} task(s) changed${response.recurring_created ? `; ${response.recurring_created} next recurring occurrence(s) created` : ''}`);
           renderTasksView();
         } catch(e) {toast(e.message,true);updateBulkSelection(body);}
       });
@@ -1488,33 +2167,48 @@
   // ACTIVITY VIEW
   // ---------------------------------------------------------------
   async function renderActivity(teamId) {
-    const container = document.getElementById('view-container');
-    container.innerHTML = '<p>Loading…</p>';
-    const url = teamId ? `activity.php?team_id=${teamId}&limit=50` : `activity.php?team_id=0&limit=50`;
-    let data;
-    try {
-      data = await api(url);
-    } catch (err) {
-      container.innerHTML = `<div class="load-error-box">
-        <p>Couldn't load activity: ${esc(err.message)}</p>
-        <button type="button" class="btn btn-ghost" id="activity-retry">Try again</button>
-      </div>`;
-      const retryBtn = document.getElementById('activity-retry');
-      if (retryBtn) retryBtn.addEventListener('click', () => renderActivity(teamId));
-      return;
+    const container=document.getElementById('view-container');
+    const canExport=iHave(['administrator','manager']);
+    container.innerHTML=`<div class="activity-filters">
+      <label for="activity-action">Action</label><input id="activity-action" placeholder="e.g. task_updated" maxlength="50">
+      <label for="activity-actor">User ID</label><input id="activity-actor" type="number" min="1" placeholder="All users">
+      <button type="button" class="btn btn-ghost" id="activity-filter">Filter</button>
+      ${canExport?'<button type="button" class="btn btn-ghost" id="activity-export">Export CSV</button>':''}
+    </div><div id="activity-results" aria-live="polite">Loading activity…</div>
+    <button type="button" class="btn btn-ghost hidden" id="activity-more">Load more</button>`;
+    let cursor=null, query='', actor='';
+    const params=()=>{
+      const q=new URLSearchParams({team_id:String(teamId||0),limit:'30'});
+      if(query)q.set('action',query);
+      if(actor)q.set('user_id',actor);
+      return q;
+    };
+    async function load(append=false){
+      const list=container.querySelector('#activity-results');
+      const more=container.querySelector('#activity-more');more.disabled=true;
+      if(!append)list.textContent='Loading activity…';
+      try{
+        const q=params();if(append&&cursor)q.set('before_id',String(cursor));
+        const data=await api('activity.php?'+q.toString());
+        const html=(data.activity||[]).map(a=>`<div class="activity-item">
+          <span class="avatar" style="background:${esc(a.avatar_color)}">${esc(initials(a.name))}</span>
+          <div><div class="activity-text"><strong>${esc(a.name)}</strong> ${esc(readableAction(a.action))}${a.detail?' — '+esc(a.detail):''}${a.team_name?` <span class="muted-label">(${esc(a.team_name)})</span>`:''}</div>
+          <div class="activity-time">${esc(a.created_at)}${a.task_id?' · Task #'+Number(a.task_id):''}</div></div></div>`).join('');
+        if(append)list.insertAdjacentHTML('beforeend',html);
+        else list.innerHTML=html||'<div class="empty-state"><h3>No matching activity</h3></div>';
+        cursor=data.next_before_id;
+        more.classList.toggle('hidden',!cursor);more.disabled=false;
+      }catch(e){list.textContent=e.message;more.classList.add('hidden');}
     }
-    if (!data.activity.length) {
-      container.innerHTML = `<div class="empty-state"><h3>No activity yet</h3></div>`;
-      return;
-    }
-    container.innerHTML = data.activity.map(a => `
-      <div class="activity-item">
-        <span class="avatar" style="background:${esc(a.avatar_color)}">${esc(initials(a.name))}</span>
-        <div>
-          <div class="activity-text"><strong>${esc(a.name)}</strong> ${esc(readableAction(a.action))} ${a.detail ? '— ' + esc(a.detail) : ''} ${a.team_name ? `<span style="color:var(--text-faint);">(${esc(a.team_name)})</span>` : ''}</div>
-          <div class="activity-time">${esc(a.created_at)}</div>
-        </div>
-      </div>`).join('');
+    container.querySelector('#activity-filter').addEventListener('click',()=>{
+      query=container.querySelector('#activity-action').value.trim();
+      actor=container.querySelector('#activity-actor').value.trim();cursor=null;load();
+    });
+    container.querySelector('#activity-more').addEventListener('click',()=>load(true));
+    container.querySelector('#activity-export')?.addEventListener('click',()=>{
+      const q=params();window.location.href='api/activity_export.php?'+q.toString();
+    });
+    await load();
   }
 
   function readableAction(action) {
@@ -1854,6 +2548,455 @@
   }
 
   // ---------------------------------------------------------------
+  // TASK TIMER: server is authoritative; the 1-second interval updates display only.
+  // MANUAL WORKLOGS: no polling, no external libraries or client identity.
+  // ---------------------------------------------------------------
+  function formatMinutes(minutes) {
+    const value = Math.max(0, Math.floor(Number(minutes) || 0));
+    return `${Math.floor(value / 60)}h ${String(value % 60).padStart(2,'0')}m`;
+  }
+
+  let activeTimer = null;
+  let timerClockOffset = 0;
+  function elapsedTimerText() {
+    if (!activeTimer) return '00:00:00';
+    const seconds = Math.max(0, Math.floor((Date.now() + timerClockOffset - Date.parse(activeTimer.started_at)) / 1000));
+    const padded = n => String(n).padStart(2, '0');
+    return `${padded(Math.floor(seconds / 3600))}:${padded(Math.floor(seconds / 60) % 60)}:${padded(seconds % 60)}`;
+  }
+  function tickTaskTimer() {
+    document.querySelectorAll('.live-timer-clock').forEach(el => { el.textContent = elapsedTimerText(); });
+  }
+  setInterval(tickTaskTimer, 1000);
+  async function refreshActiveTimer() {
+    const result = await api('timer.php');
+    timerClockOffset = Date.parse(result.server_now) - Date.now();
+    activeTimer = result.active;
+    renderTaskTimerWidget();
+    renderReportTimerWidget();
+    tickTaskTimer();
+  }
+  async function runTimerAction(action, taskId = null, note = '') {
+    const payload = {action};
+    if (action === 'start') payload.task_id = Number(taskId);
+    if (action === 'stop') payload.note = note;
+    const result = await api('timer.php', {method:'POST', body:payload});
+    await refreshActiveTimer();
+    if (action === 'stop') toast(`Saved ${formatMinutes(result.minutes)} of tracked time`);
+    else toast(action === 'start' ? 'Timer started' : 'Timer discarded');
+    return result;
+  }
+  function renderTaskTimerWidget() {
+    const widget = document.getElementById('task-timer-widget');
+    if (!widget) return;
+    const taskId = Number(widget.dataset.taskId);
+    const canLog = widget.dataset.canLog === 'true';
+    if (!activeTimer) {
+      widget.innerHTML = canLog ? '<button type="button" class="btn btn-primary" data-timer-action="start">▶ Start timer</button>' : '';
+    } else {
+      const onTask = Number(activeTimer.task_id) === taskId;
+      widget.innerHTML = `<div class="timer-panel"><div><span class="timer-live-dot"></span><strong>${onTask ? 'Timer running for this task' : 'Timer running elsewhere'}</strong>
+        <p class="timer-subtitle">${esc(activeTimer.title)}</p><span class="live-timer-clock" aria-label="Elapsed timer">${elapsedTimerText()}</span></div>
+        <div class="timer-controls">${onTask && activeTimer.can_stop ? '<input type="text" class="timer-note" maxlength="300" placeholder="Stop note (optional)" aria-label="Time log note"><button type="button" class="btn btn-primary" data-timer-action="stop">■ Stop & save</button>' : ''}
+        ${!onTask && activeTimer.task_id ? '<button type="button" class="btn btn-ghost" data-timer-action="open">Open task</button>' : ''}
+        <button type="button" class="btn btn-ghost" data-timer-action="discard">Discard</button></div></div>`;
+    }
+    widget.querySelectorAll('[data-timer-action]').forEach(btn => btn.addEventListener('click', async () => {
+      const action = btn.dataset.timerAction;
+      if (action === 'open') { openTaskModal(activeTimer.task_id); return; }
+      if (action === 'discard' && !confirm('Discard this running timer without saving its time?')) return;
+      btn.disabled = true;
+      try {
+        await runTimerAction(action, taskId, widget.querySelector('.timer-note')?.value || '');
+        if (action === 'stop') await loadTaskWorklog(taskId);
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
+    }));
+  }
+  function renderReportTimerWidget() {
+    for (const widget of document.querySelectorAll('.report-active-timer')) {
+      if (!activeTimer) {
+        widget.innerHTML = '<p class="dependency-help">No timer running. Open a task to start tracking.</p>';
+      } else {
+        widget.innerHTML = `<div class="timer-panel"><div><span class="timer-live-dot"></span><strong>${esc(activeTimer.title)}</strong>
+          <p class="timer-subtitle">Active timer · server recorded</p><span class="live-timer-clock">${elapsedTimerText()}</span></div>
+          <div class="timer-controls">${activeTimer.can_stop ? '<button class="btn btn-primary" data-timer-action="stop">■ Stop & save</button>' : ''}
+          ${activeTimer.task_id ? '<button class="btn btn-ghost" data-timer-action="open">Open task</button>' : ''}
+          <button class="btn btn-ghost" data-timer-action="discard">Discard</button></div></div>`;
+      }
+      widget.querySelectorAll('[data-timer-action]').forEach(btn => btn.addEventListener('click', async () => {
+        const action = btn.dataset.timerAction;
+        if (action === 'open') { openTaskModal(activeTimer.task_id); return; }
+        if (action === 'discard' && !confirm('Discard this timer without saving?')) return;
+        btn.disabled = true;
+        try {
+          await runTimerAction(action);
+          if (action === 'stop') {
+            if (state.currentView === 'time-reports') {timeReportCursor=null;loadTimeReport();}
+            if (state.currentView === 'timesheet') loadTimesheet();
+          }
+        } catch(e) {toast(e.message,true); btn.disabled=false;}
+      }));
+    }
+  }
+
+  async function loadTaskWorklog(taskId) {
+    const root = document.getElementById('tm-time-panel');
+    if (!root || Number(root.dataset.taskId) !== Number(taskId)) return;
+    try {
+      const result = await api('worklog.php?task_id=' + taskId);
+      const panel = document.getElementById('tm-time-panel');
+      if (!panel || Number(panel.dataset.taskId) !== Number(taskId)) return;
+      const today = new Date().toISOString().slice(0, 10);
+      panel.innerHTML = `<div class="worklog-summary"><strong>${formatMinutes(result.minutes_total)}</strong><span>${result.can_view_team ? 'Logged by this task’s team' : 'Your logged time'}</span></div>
+        <div id="task-timer-widget" data-task-id="${Number(taskId)}" data-can-log="${result.can_log ? 'true' : 'false'}"></div>
+        <div class="worklog-entries">${result.entries.map(e => `<div class="worklog-entry">
+          <span class="worklog-duration">${formatMinutes(e.minutes)}</span>
+          <span class="worklog-detail"><strong>${esc(e.name)}</strong> · ${fmtDate(e.work_date)} ${e.note ? `<small>${esc(e.note)}</small>` : ''} ${['submitted','approved'].includes(e.review_status) ? '<small>Week locked for review</small>' : ''}</span>
+          ${Number(e.user_id) === Number(state.user.id) && !['submitted','approved'].includes(e.review_status) ? `<button type="button" class="worklog-remove" data-entry-id="${Number(e.id)}" aria-label="Remove time entry">Remove</button>` : ''}
+        </div>`).join('') || '<p class="dependency-empty">No time has been logged yet.</p>'}</div>
+        ${result.can_log ? `<form id="tm-log-time" class="worklog-form">
+          <label>Minutes <input type="number" id="tm-log-minutes" min="1" max="720" step="1" required placeholder="45"></label>
+          <label>Work date (UTC) <input type="date" id="tm-log-date" value="${today}" max="${today}" required></label>
+          <label>Notes (optional) <input type="text" id="tm-log-note" maxlength="300" placeholder="What did you work on?"></label>
+          <button type="submit" class="btn btn-ghost">Log time</button>
+        </form>` : `<p class="dependency-help">${result.week_locked ? 'Your current week is submitted or approved. You can log more time after a reviewer requests changes.' : 'Only task creators, assignees and managers can log time.'}</p>`}`;
+      await refreshActiveTimer();
+      panel.querySelector('#tm-log-time')?.addEventListener('submit', async event => {
+        event.preventDefault();
+        const form=event.currentTarget; const submit=form.querySelector('button[type="submit"]');
+        submit.disabled=true;
+        try {
+          await api('worklog.php',{method:'POST',body:{task_id:Number(taskId),minutes:Number(form.querySelector('#tm-log-minutes').value),
+            work_date:form.querySelector('#tm-log-date').value,note:form.querySelector('#tm-log-note').value}});
+          toast('Time logged');
+          await loadTaskWorklog(taskId);
+        } catch(e) { toast(e.message, true);submit.disabled=false; }
+      });
+      panel.querySelectorAll('[data-entry-id]').forEach(btn => btn.addEventListener('click', async () => {
+        if (!confirm('Remove your time entry?')) return;
+        btn.disabled=true;
+        try {
+          await api('worklog.php',{method:'DELETE',body:{task_id:Number(taskId),id:Number(btn.dataset.entryId)}});
+          toast('Entry removed');await loadTaskWorklog(taskId);
+        } catch(e) { toast(e.message, true);btn.disabled=false; }
+      }));
+    } catch(e) {
+      const panel = document.getElementById('tm-time-panel');
+      if (panel && Number(panel.dataset.taskId) === Number(taskId)) panel.innerHTML = `<p role="alert">Could not load time entries: ${esc(e.message)}</p>`;
+    }
+  }
+
+  let timeReportCursor = null;
+  let timeReportRequestId = 0;
+  function utcIso(date) { return date.toISOString().slice(0,10); }
+  async function renderTimeReports() {
+    timeReportCursor = null;
+    const today = new Date();
+    const start = new Date(today); start.setUTCDate(start.getUTCDate()-6);
+    const container=document.getElementById('view-container');
+    const managers = iHave(['administrator','manager']);
+    container.innerHTML=`<section class="time-report-intro"><div class="feature-intro"><h2>Time reports</h2>
+      <p>Review both manual and timer-based worklogs. Dates use UTC; entries are not verified billable hours.</p></div>
+      <div class="report-active-timer" aria-live="polite"></div>
+      <form class="time-report-filters" id="time-report-filters">
+        <label>From <input type="date" id="report-from" value="${utcIso(start)}" max="${utcIso(today)}" required></label>
+        <label>To <input type="date" id="report-to" value="${utcIso(today)}" max="${utcIso(today)}" required></label>
+        ${managers ? '<label>Show <select id="report-scope"><option value="mine">My entries</option><option value="team">Team entries</option></select></label>' : ''}
+        <button class="btn btn-primary" type="submit">Update report</button>
+      </form>
+      <div id="time-report-summary" aria-live="polite"></div>
+      <div id="time-report-results"></div></section>`;
+    container.querySelector('#time-report-filters').addEventListener('submit',e=>{e.preventDefault();timeReportCursor=null;loadTimeReport();});
+    await Promise.all([loadTimeReport(), refreshActiveTimer()]);
+  }
+
+  async function loadTimeReport() {
+    const output=document.getElementById('time-report-results');
+    if (!output || state.currentView !== 'time-reports') return;
+    const append=timeReportCursor!==null;
+    const seq=++timeReportRequestId;
+    const params = new URLSearchParams({team_id:String(state.currentTeamId),
+      from:document.getElementById('report-from').value,to:document.getElementById('report-to').value,
+      scope:document.getElementById('report-scope')?.value || 'mine'});
+    if (append) params.set('before_id',String(timeReportCursor));
+    if (!append) {output.innerHTML='<p>Loading time report…</p>';document.getElementById('time-report-summary').innerHTML='';}
+    try {
+      const data=await api('time_report.php?'+params);
+      if (state.currentView!=='time-reports' || seq!==timeReportRequestId || !document.getElementById('time-report-results')) return;
+      const total=data.totals || {};
+      const daily=data.daily || [];
+      const highest=Math.max(1,...daily.map(day=>Number(day.minutes)||0));
+      document.getElementById('time-report-summary').innerHTML=`
+        <div class="time-metrics">
+          <div><span>Logged time</span><strong>${formatMinutes(total.minutes)}</strong></div>
+          <div><span>Entries</span><strong>${Number(total.entries||0)}</strong></div>
+          <div><span>Tasks worked</span><strong>${Number(total.tasks||0)}</strong></div>
+        </div>
+        <div class="time-chart" aria-label="Minutes logged by work date">${daily.length ? daily.map(day=>`
+          <div class="time-chart-day" title="${esc(day.date)}: ${formatMinutes(day.minutes)}">
+            <div class="time-chart-column"><div style="height:${Math.max(3,Number(day.minutes)/highest*100)}%"></div></div>
+            <small>${fmtDate(day.date)}</small>
+          </div>`).join('') : '<p class="dependency-empty">No logged time in this date range.</p>'}</div>`;
+      output.querySelector('#time-report-more')?.remove();
+      if (!append) output.innerHTML='<h3 class="time-report-heading">Recent entries</h3><div id="time-report-list" class="time-report-list"></div>';
+      const list=output.querySelector('#time-report-list');
+      if (!append && !data.entries.length) list.innerHTML='<p class="dependency-empty">Nothing logged in this period.</p>';
+      if (data.entries.length) {
+        const rows=document.createElement('div');
+        rows.innerHTML=data.entries.map(e=>`<button type="button" class="time-report-entry" data-task-id="${Number(e.task_id)}">
+          <span><strong>${esc(e.title)}</strong><small>${esc(e.name)} · ${esc(e.work_date)} ${e.note ? '· '+esc(e.note) : ''}</small></span>
+          <strong>${formatMinutes(e.minutes)}</strong></button>`).join('');
+        rows.querySelectorAll('[data-task-id]').forEach(btn=>btn.addEventListener('click',()=>openTaskModal(Number(btn.dataset.taskId))));
+        list.appendChild(rows);
+      }
+      timeReportCursor=data.next_before_id;
+      if (timeReportCursor) {
+        const more=document.createElement('button'); more.id='time-report-more';more.className='btn btn-ghost';more.textContent='Load more entries';
+        more.addEventListener('click',()=>loadTimeReport());output.appendChild(more);
+      }
+    } catch(e) {
+      if (seq===timeReportRequestId) {if (!append) output.innerHTML=`<p role="alert">${esc(e.message)}</p>`; else toast(e.message,true);}
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // WEEKLY TIMESHEET: 7-day UTC windows, permission-scoped server results.
+  // ---------------------------------------------------------------
+  let timesheetWeek = null;
+  let timesheetRequest = 0;
+  function mondayUtc(now = new Date()) {
+    const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7));
+    return date;
+  }
+  function shiftTimesheetWeek(days) {
+    const d = new Date(timesheetWeek + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0,10);
+  }
+  async function renderTimesheet() {
+    if (!timesheetWeek) timesheetWeek = utcIso(mondayUtc());
+    const manager = iHave(['administrator','manager']);
+    document.getElementById('view-container').innerHTML = `<section class="timesheet-view">
+      <div class="feature-intro"><h2>Weekly timesheet</h2><p>Track weekly hours, submit for review, and export a spreadsheet-safe CSV.</p></div>
+      <div class="timesheet-toolbar">
+        <button class="btn btn-ghost" type="button" id="timesheet-prev" aria-label="Previous week">← Previous</button>
+        <strong id="timesheet-week-label"></strong>
+        <button class="btn btn-ghost" type="button" id="timesheet-next" aria-label="Next week">Next →</button>
+        ${manager ? `<label class="timesheet-scope">View <select id="timesheet-scope"><option value="mine">My work</option><option value="team">Team work</option></select></label>` : ''}
+        <a class="btn btn-primary" id="timesheet-export" href="#" download>↓ Export CSV</a>
+      </div><div class="report-active-timer" aria-live="polite"></div>
+      <div id="timesheet-review-panel" aria-live="polite"></div>
+      <div id="timesheet-results" aria-live="polite"><p>Loading weekly totals…</p></div>
+    </section>`;
+    document.getElementById('timesheet-prev').onclick = () => {timesheetWeek=shiftTimesheetWeek(-7);loadTimesheet();};
+    document.getElementById('timesheet-next').onclick = () => {timesheetWeek=shiftTimesheetWeek(7);loadTimesheet();};
+    document.getElementById('timesheet-scope')?.addEventListener('change', () => loadTimesheet());
+    await Promise.all([loadTimesheet(), refreshActiveTimer()]);
+  }
+  async function loadTimesheet() {
+    const output=document.getElementById('timesheet-results');
+    if (!output || state.currentView !== 'timesheet') return;
+    const request=++timesheetRequest;
+    const weekDate=new Date(timesheetWeek+'T00:00:00Z');
+    const end=new Date(weekDate);end.setUTCDate(end.getUTCDate()+6);
+    document.getElementById('timesheet-week-label').textContent=`${fmtDate(timesheetWeek)} – ${fmtDate(utcIso(end))} (UTC)`;
+    document.getElementById('timesheet-next').disabled=shiftTimesheetWeek(7)>utcIso(new Date());
+    document.getElementById('timesheet-prev').disabled=shiftTimesheetWeek(-7)<utcIso(new Date(Date.now()-365*86400000));
+    const params = new URLSearchParams({team_id:String(state.currentTeamId),week:timesheetWeek,scope:document.getElementById('timesheet-scope')?.value||'mine'});
+    document.getElementById('timesheet-export').href='api/timesheet.php?'+params+'&format=csv';
+    output.innerHTML='<p>Loading weekly totals…</p>';
+    loadTimesheetReviews();
+    try {
+      const data=await api('timesheet.php?'+params);
+      if (request!==timesheetRequest || state.currentView!=='timesheet' || !document.getElementById('timesheet-results')) return;
+      const totals=data.summary||{};
+      const dailyMap=new Map((data.daily||[]).map(x=>[x.date,Number(x.minutes)||0]));
+      const days=Array.from({length:7},(_,i)=>{const date=new Date(timesheetWeek+'T00:00:00Z');date.setUTCDate(date.getUTCDate()+i);return utcIso(date);});
+      const max=Math.max(1,...days.map(day=>dailyMap.get(day)||0));
+      output.innerHTML=`<div class="time-metrics"><div><span>Logged hours</span><strong>${formatMinutes(totals.minutes)}</strong></div>
+        <div><span>Time entries</span><strong>${Number(totals.entries||0)}</strong></div>
+        <div><span>Tasks worked</span><strong>${Number(totals.tasks||0)}</strong></div>
+        <div><span>Contributors</span><strong>${Number(totals.contributors||0)}</strong></div></div>
+        <div class="timesheet-days">${days.map((date,i)=>`<div class="timesheet-day"><span>${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][i]}</span>
+          <div class="timesheet-day-bar"><div style="height:${(dailyMap.get(date)||0)>0 ? Math.max(4,(dailyMap.get(date)||0)/max*100) : 0}%"></div></div>
+          <strong>${formatMinutes(dailyMap.get(date)||0)}</strong></div>`).join('')}</div>
+        <div class="timesheet-results-header"><h3>Work by task</h3><p>${data.limited?'Showing the 100 largest task/member groups. Download CSV for the full week.':'All task/member groups this week.'}</p></div>
+        <div class="timesheet-list">${data.rows.length ? data.rows.map(row=>`<button class="timesheet-task" type="button" data-task-id="${Number(row.task_id)}">
+          <span><strong>${esc(row.title)}</strong><small>${esc(row.name)} · ${Number(row.entries)} ${Number(row.entries)===1?'entry':'entries'}</small></span>
+          <strong>${formatMinutes(row.minutes)}</strong></button>`).join(''):'<p class="dependency-empty">No work logged in this week yet.</p>'}</div>`;
+      output.querySelectorAll('[data-task-id]').forEach(btn=>btn.addEventListener('click',()=>openTaskModal(Number(btn.dataset.taskId))));
+    } catch(err) {if(request===timesheetRequest) output.innerHTML=`<p role="alert">${esc(err.message)}</p>`;}
+  }
+
+  // ---------------------------------------------------------------
+  // WEEKLY REVIEWS: member submission, manager queue and audit trail.
+  // ---------------------------------------------------------------
+  let timesheetReviewRequest=0;
+  const timesheetStatusLabel={submitted:'Awaiting review',approved:'Approved',changes_requested:'Changes requested'};
+  async function loadTimesheetReviews() {
+    const panel=document.getElementById('timesheet-review-panel');
+    if (!panel || !state.currentTeamId) return;
+    const request=++timesheetReviewRequest;
+    const scope=document.getElementById('timesheet-scope')?.value||'mine';
+    const params=new URLSearchParams({team_id:String(state.currentTeamId),week:timesheetWeek,mode:scope});
+    panel.innerHTML='<section class="approval-panel"><p>Loading review status…</p></section>';
+    try {
+      const data=await api('timesheet_approvals.php?'+params);
+      if (request!==timesheetReviewRequest || state.currentView!=='timesheet' || !document.getElementById('timesheet-review-panel')) return;
+      if (scope==='mine') {
+        const r=data.review;
+        const status=r?.status||'draft';
+        const statusText=timesheetStatusLabel[status]||'Not submitted';
+        panel.innerHTML=`<section class="approval-panel"><div class="approval-heading"><div><h3>My weekly approval</h3>
+          <p>Your time entries stay editable until submitted. Submitted or approved weeks are locked.</p></div>
+          <span class="approval-badge approval-${esc(status)}">${esc(statusText)}</span></div>
+          ${r ? `<p class="approval-detail">${Number(r.entry_count)} entries · ${formatMinutes(r.total_minutes)} submitted${r.reviewed_by_name ? ` · Reviewed by ${esc(r.reviewed_by_name)}` : ''}</p>`:''}
+          ${r?.reviewer_note ? `<p class="approval-note"><strong>Reviewer note:</strong> ${esc(r.reviewer_note)}</p>`:''}
+          ${status==='draft'||status==='changes_requested' ? '<button type="button" class="btn btn-primary" id="submit-timesheet">Submit week for review</button>' : ''}
+          ${data.events?.length ? `<details class="approval-history"><summary>Review history</summary><ol>${data.events.map(e=>`<li><strong>${esc(e.event_type.replaceAll('_',' '))}</strong> · ${esc(e.actor_name)} · ${esc(e.created_at)}${e.note?`<p>${esc(e.note)}</p>`:''}</li>`).join('')}</ol></details>`:''}</section>`;
+        panel.querySelector('#submit-timesheet')?.addEventListener('click', async ev=>{
+          if (!confirm('Submit this week for review? You will not be able to edit its time entries until changes are requested.')) return;
+          ev.currentTarget.disabled=true;
+          try {
+            await api('timesheet_approvals.php',{method:'POST',body:{action:'submit',team_id:state.currentTeamId,week:timesheetWeek}});
+            toast('Timesheet submitted for review');loadTimesheetReviews();
+          } catch(e) {toast(e.message,true);loadTimesheetReviews();}
+        });
+      } else {
+        const rows=data.reviews||[];
+        panel.innerHTML=`<section class="approval-panel"><div class="approval-heading"><div><h3>Team approvals</h3>
+          <p>Review submitted weekly hours. You cannot approve your own timesheet.</p></div>
+          <span class="approval-badge">${rows.filter(r=>r.status==='submitted').length} pending</span></div>
+          ${data.limited?'<p class="approval-note">Showing the first 100 submissions for this week.</p>':''}
+          <div class="approval-queue">${rows.length ? rows.map(r=>`<div class="approval-row"><div class="approval-row-meta"><strong>${esc(r.member_name)}</strong>
+            <span>${Number(r.entry_count)} entries · ${formatMinutes(r.total_minutes)} · ${esc(timesheetStatusLabel[r.status]||r.status)}</span>
+            ${r.reviewer_note?`<small>${esc(r.reviewer_note)}</small>`:''}</div>
+            ${r.status==='submitted'&&Number(r.member_id)!==Number(state.user.id)?`<div class="approval-actions"><button type="button" class="btn btn-primary" data-review-action="approve" data-review-id="${Number(r.id)}">Approve</button>
+              <button type="button" class="btn btn-ghost" data-review-action="request_changes" data-review-id="${Number(r.id)}">Request changes</button></div>`:''}</div>`).join(''):'<p class="dependency-empty">No submissions for this week yet.</p>'}</div></section>`;
+        panel.querySelectorAll('[data-review-action]').forEach(btn=>btn.addEventListener('click',async()=>{
+          const action=btn.dataset.reviewAction;
+          let note='';
+          if (action==='request_changes') {
+            const answer=prompt('What needs to change? Please explain clearly (up to 500 characters).');
+            if(answer===null)return;
+            note=answer.trim();
+            if (!note || note.length>500) {toast('Please enter a note of 1–500 characters.',true);return;}
+          } else if(!confirm('Approve this submitted timesheet?')) return;
+          btn.disabled=true;
+          try {
+            await api('timesheet_approvals.php',{method:'POST',body:{action,review_id:Number(btn.dataset.reviewId),team_id:state.currentTeamId,note}});
+            toast(action==='approve'?'Timesheet approved':'Changes requested');loadTimesheetReviews();
+          }catch(e){toast(e.message,true);loadTimesheetReviews();}
+        }));
+      }
+    } catch(err) {
+      if (request===timesheetReviewRequest && document.getElementById('timesheet-review-panel'))
+        panel.innerHTML=`<p class="approval-error" role="alert">${esc(err.message)}</p>`;
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // WORKLOAD: due-week estimates, separately shown from time logged.
+  // ---------------------------------------------------------------
+  let workloadWeek = null;
+  let workloadScope = 'team';
+  let workloadOffset = 0;
+  function isoUtcMonday(date = new Date()) {
+    const utc = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+    utc.setUTCDate(utc.getUTCDate() - ((utc.getUTCDay() + 6) % 7));
+    return utc.toISOString().slice(0, 10);
+  }
+  function moveWorkloadWeek(amount) {
+    const value = new Date(workloadWeek + 'T00:00:00Z');
+    value.setUTCDate(value.getUTCDate() + 7 * amount);
+    workloadWeek = value.toISOString().slice(0, 10);
+    renderWorkload();
+  }
+  async function renderWorkload() {
+    const container = document.getElementById('view-container');
+    if (!state.currentTeamId) { container.innerHTML = emptyTeamState(); return; }
+    if (!workloadWeek) workloadWeek = isoUtcMonday();
+    const canManage = iHave(['administrator', 'manager']);
+    if (!canManage) workloadScope = 'mine';
+    workloadOffset = 0;
+    container.innerHTML = `<div class="feature-intro"><h2>Plan a realistic week</h2><p>See estimated open work due this week, alongside team availability and actual time logged.</p></div>
+      <section class="workload-toolbar" aria-label="Workload filters">
+        <button type="button" class="btn btn-ghost" id="workload-prev" aria-label="Previous week">← Previous</button>
+        <label>Week of <input id="workload-week" type="date" value="${workloadWeek}"></label>
+        <button type="button" class="btn btn-ghost" id="workload-next" aria-label="Next week">Next →</button>
+        ${canManage ? `<label>View <select id="workload-scope"><option value="team" ${workloadScope==='team'?'selected':''}>Whole team</option><option value="mine" ${workloadScope==='mine'?'selected':''}>My work</option></select></label>` : '<span class="workload-scope-label">My work</span>'}
+      </section>
+      <p class="workload-explain">Plans include open tasks assigned to a person and due this UTC Monday–Sunday week. Unestimated tasks are flagged, not counted as zero-effort. A shared task's full estimate appears for each assignee; logged time is separate.</p>
+      <div id="workload-results" aria-live="polite"><p>Calculating workload…</p></div>`;
+    document.getElementById('workload-prev').addEventListener('click', () => moveWorkloadWeek(-1));
+    document.getElementById('workload-next').addEventListener('click', () => moveWorkloadWeek(1));
+    document.getElementById('workload-week').addEventListener('change', ev => {
+      const value = ev.target.value;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+      workloadWeek = isoUtcMonday(new Date(value + 'T00:00:00Z'));
+      renderWorkload();
+    });
+    document.getElementById('workload-scope')?.addEventListener('change', ev => {
+      workloadScope = ev.target.value;
+      renderWorkload();
+    });
+    await loadWorkload(false);
+  }
+  async function loadWorkload(append = false) {
+    const target = document.getElementById('workload-results');
+    if (!target || state.currentView !== 'workload') return;
+    const teamId = state.currentTeamId;
+    const requestedWeek = workloadWeek;
+    const requestedScope = workloadScope;
+    const params = new URLSearchParams({team_id:String(teamId), week:requestedWeek, scope:requestedScope, offset:String(append ? workloadOffset : 0)});
+    if (!append) target.innerHTML = '<p>Calculating workload…</p>';
+    try {
+      const data = await api('workload.php?' + params);
+      if (state.currentView !== 'workload' || state.currentTeamId !== teamId || workloadWeek !== requestedWeek || workloadScope !== requestedScope || !document.getElementById('workload-results')) return;
+      if (!append) target.innerHTML = '';
+      target.querySelector('#workload-more')?.remove();
+      if (!data.rows.length && !append) {target.innerHTML='<div class="empty-state"><h3>No team members in this view</h3><p>Switch scope or ask an administrator to assign a team.</p></div>';return;}
+      const list = document.createElement('div');
+      list.className = 'workload-grid';
+      list.innerHTML = data.rows.map(row => {
+        const over = row.load_percent === null ? Number(row.planned_minutes)>0 : Number(row.load_percent)>100;
+        const progress = row.load_percent===null ? (Number(row.planned_minutes)>0 ? 100 : 0) : Math.max(0,Math.min(100,Number(row.load_percent)));
+        return `<article class="workload-card ${over?'workload-over':''}" data-member-id="${Number(row.user_id)}">
+          <div class="workload-card-header"><div><span class="workload-avatar">${esc(initials(row.name))}</span><strong>${esc(row.name)}</strong></div><span class="workload-chip ${over?'is-over':''}">${row.load_percent === null ? (Number(row.planned_minutes)>0?'No capacity':'Not scheduled') : row.load_percent+'% planned'}</span></div>
+          <div class="workload-hours"><div><small>Due this week</small><strong>${hoursText(row.planned_minutes)}</strong></div><div><small>Availability</small><strong>${hoursText(row.capacity_minutes)}</strong></div><div><small>Logged this week</small><strong>${hoursText(row.logged_minutes)}</strong></div></div>
+          <div class="workload-meter" aria-label="${esc(row.name)}: ${esc(row.load_percent===null?'No capacity set':row.load_percent+' percent of capacity')}" role="img"><span style="width:${progress}%"></span></div>
+          <div class="workload-foot"><span>${Number(row.due_tasks)} open due task(s)${Number(row.unestimated_tasks)?' · '+Number(row.unestimated_tasks)+' without estimates':''}</span>
+          ${row.can_edit_capacity?`<label>Weekly capacity (h) <input type="number" data-capacity-id="${Number(row.user_id)}" min="0" max="80" step="0.5" value="${Number(row.capacity_minutes)/60}"></label><button type="button" class="btn btn-ghost" data-save-capacity="${Number(row.user_id)}">Save</button>`:''}</div>
+        </article>`;
+      }).join('');
+      target.appendChild(list);
+      list.querySelectorAll('[data-save-capacity]').forEach(btn => btn.addEventListener('click', async () => {
+        const id=Number(btn.dataset.saveCapacity);
+        const input=list.querySelector(`[data-capacity-id="${id}"]`);
+        const hours=Number(input.value);
+        if (!input.value.trim() || !Number.isFinite(hours) || hours<0 || hours>80 || !Number.isInteger(hours*60)) {
+          toast('Capacity must be between 0 and 80 hours in whole minutes.',true);return;
+        }
+        btn.disabled=true;
+        try {
+          await api('workload.php',{method:'POST',body:{action:'set_capacity',team_id:teamId,user_id:id,weekly_minutes:Math.round(hours*60)}});
+          toast('Capacity saved');renderWorkload();
+        } catch(err) {toast(err.message,true);btn.disabled=false;}
+      }));
+      workloadOffset=data.next_offset;
+      if (workloadOffset !== null) {
+        const more=document.createElement('button');more.id='workload-more';more.className='btn btn-ghost';more.textContent='Load more team members';
+        more.addEventListener('click', () => loadWorkload(true));target.appendChild(more);
+      }
+    } catch(err) {
+      if (!append) target.innerHTML=`<div class="load-error-box"><p role="alert">Could not load workload: ${esc(err.message)}</p><button type="button" class="btn btn-ghost" id="workload-retry">Retry</button></div>`;
+      else toast(err.message,true);
+      document.getElementById('workload-retry')?.addEventListener('click', () => loadWorkload(false));
+    }
+  }
+
+  // ---------------------------------------------------------------
   // PERSONAL WORK: user's own tasks with server-side team boundaries.
   // ---------------------------------------------------------------
   let myWorkCursor = null;
@@ -1862,7 +3005,7 @@
     const container = document.getElementById('view-container');
     container.innerHTML = `<div class="feature-intro"><h2>Your work, without the noise</h2><p>Tasks you created or were assigned to. Past-team work stays private.</p></div>
       <form class="search-form" id="my-work-filters">
-        <select id="my-work-mode" aria-label="My work type"><option value="all">Created or assigned</option><option value="assigned">Assigned to me</option><option value="created">Created by me</option></select>
+        <select id="my-work-mode" aria-label="My work type"><option value="all">Created or assigned</option><option value="assigned">Assigned to me</option><option value="created">Created by me</option><option value="favorites">Starred tasks</option></select>
         <select id="my-work-due" aria-label="Due date"><option value="all">Any due date</option><option value="overdue">Overdue</option><option value="today">Due today</option><option value="week">Next 7 days</option><option value="upcoming">Upcoming</option><option value="none">Without due date</option></select>
         <select id="my-work-status" aria-label="Completion"><option value="open">Open tasks</option><option value="done">Completed</option><option value="all">All statuses</option></select>
       </form><div class="search-results" id="my-work-results" aria-live="polite"></div>`;
@@ -1972,7 +3115,7 @@
   }
   async function moveBoardTask(id,status) {
     if (!boardStatuses.some(([s]) => s===status)) return;
-    try { await api('task.php',{method:'PUT',body:{id,status}}); toast('Task moved'); await renderBoard(); }
+    try { const result=await api('task.php',{method:'PUT',body:{id,status}}); toast(result.recurrence_new_task_id ? 'Task completed. Next recurring task created.' : 'Task moved'); await renderBoard(); }
     catch(e) { toast(e.message,true); await renderBoard(); }
   }
 
@@ -2035,17 +3178,60 @@
   }
 
   // ---------------------------------------------------------------
-  // SEARCH: server-side pagination and same-team authorization.
+  // ---------------------------------------------------------------
+  // SEARCH: user-owned saved filters plus paginated team-scoped results.
   // ---------------------------------------------------------------
   let taskSearchCursor = null;
+  let taskSavedViews = [];
+  let taskSavedViewTeam = null;
+  function taskSearchFilters(){
+    return {
+      q:document.getElementById('task-search-q').value.trim(),
+      status:document.getElementById('task-search-status').value,
+      priority:document.getElementById('task-search-priority').value,
+      list_id:document.getElementById('task-search-list').value || null,
+      mine:document.getElementById('task-search-mine').checked,
+    };
+  }
+  function applyTaskSavedView(view){
+    document.getElementById('task-search-q').value=view.q||'';
+    document.getElementById('task-search-status').value=view.status||'all';
+    document.getElementById('task-search-priority').value=view.priority||'all';
+    const list=String(view.list_id||'');
+    document.getElementById('task-search-list').value=state.lists.some(l=>String(l.id)===list)?list:'';
+    document.getElementById('task-search-mine').checked=Boolean(Number(view.mine));
+    taskSearchCursor=null;
+    loadTaskSearch();
+  }
+  async function refreshSavedViewPicker(selectedId=null){
+    const teamId=Number(state.currentTeamId);
+    let response;
+    try{response=await api('saved_views.php?team_id='+teamId);}
+    catch(e){toast('Saved searches unavailable: '+e.message,true);response={views:[]};}
+    const picker=document.getElementById('task-search-saved');
+    if(!picker || state.currentView!=='search' || Number(state.currentTeamId)!==teamId)return;
+    taskSavedViews=Array.isArray(response.views)?response.views:[];
+    taskSavedViewTeam=teamId;
+    picker.innerHTML='<option value="">Choose a saved search</option>'+taskSavedViews.map(v=>
+      `<option value="${Number(v.id)}">${esc(v.name)}${Number(v.is_default)?' (default)':''}</option>`).join('');
+    if(selectedId && taskSavedViews.some(v=>Number(v.id)===Number(selectedId)))picker.value=String(selectedId);
+    document.getElementById('task-search-default').disabled=!picker.value;
+    document.getElementById('task-search-delete').disabled=!picker.value;
+    return taskSavedViews;
+  }
   async function renderSearchTasks() {
     const container = document.getElementById('view-container');
     if (!state.currentTeamId) { container.innerHTML = emptyTeamState(); return; }
     const canExport = iHave(['administrator','manager']);
     const exportBtn = canExport ? `<a class="btn btn-ghost" id="search-export" href="api/export.php?team_id=${Number(state.currentTeamId)}" download>Export team CSV</a>` : '';
-    container.innerHTML = `<div class="settings-box"><div class="settings-box-header"><h2>Find work in your team</h2><p>Search titles and descriptions. Results are limited to your authorized team.</p></div>
+    container.innerHTML = `<div class="settings-box"><div class="settings-box-header"><h2>Find work in your team</h2><p>Search titles and descriptions. Save up to 20 personal searches per team.</p></div>
+      <div class="saved-search-bar"><label for="task-search-saved">Saved searches</label><select id="task-search-saved"><option value="">Choose a saved search</option></select>
+        <button class="btn btn-ghost" type="button" id="task-search-save">Save filters</button>
+        <button class="btn btn-ghost" type="button" id="task-search-default" disabled>Make default</button>
+        <button class="btn btn-ghost" type="button" id="task-search-delete" disabled>Delete</button></div>
       <form id="task-search-form" class="search-form">
         <input id="task-search-q" type="search" maxlength="120" placeholder="Search tasks…" aria-label="Search task titles and descriptions">
+        <select id="task-search-list" aria-label="Task list"><option value="">All lists</option>${state.lists.map(l=>`<option value="${Number(l.id)}">${esc(l.name)}</option>`).join('')}</select>
         <select id="task-search-status" aria-label="Task status"><option value="all">Any status</option><option value="to_do">To do</option><option value="in_progress">In progress</option><option value="review">Review</option><option value="done">Done</option></select>
         <select id="task-search-priority" aria-label="Priority"><option value="all">Any priority</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option><option value="none">None</option></select>
         <label class="search-mine"><input id="task-search-mine" type="checkbox"> My work</label>
@@ -2053,10 +3239,54 @@
       </form></div>
       <div id="task-search-results" class="search-results" aria-live="polite"></div>`;
     document.getElementById('task-search-form').addEventListener('submit', e => { e.preventDefault(); taskSearchCursor=null; loadTaskSearch(); });
-    document.getElementById('task-search-status').addEventListener('change', () => { taskSearchCursor=null; loadTaskSearch(); });
-    document.getElementById('task-search-priority').addEventListener('change', () => { taskSearchCursor=null; loadTaskSearch(); });
-    document.getElementById('task-search-mine').addEventListener('change', () => { taskSearchCursor=null; loadTaskSearch(); });
-    await loadTaskSearch();
+    ['status','priority','list','mine'].forEach(id=>document.getElementById('task-search-'+id).addEventListener('change',()=>{taskSearchCursor=null;loadTaskSearch();}));
+    document.getElementById('task-search-saved').addEventListener('change',e=>{
+      const selected=taskSavedViews.find(v=>String(v.id)===e.target.value);
+      document.getElementById('task-search-default').disabled=!selected;
+      document.getElementById('task-search-default').textContent=selected && Number(selected.is_default)?'Remove default':'Make default';
+      document.getElementById('task-search-delete').disabled=!selected;
+      if(selected)applyTaskSavedView(selected);
+    });
+    document.getElementById('task-search-save').addEventListener('click',()=>{
+      promptModal('Save this search',`<label for="saved-search-name">Search name</label><input id="saved-search-name" maxlength="60" placeholder="e.g. High priority this week" required>
+        <label class="search-mine"><input type="checkbox" id="saved-search-default"> Use as my default search</label>`,async()=>{
+        const name=document.getElementById('saved-search-name').value.trim();
+        if(!name || new TextEncoder().encode(name).length>60)throw new Error('Enter a name no longer than 60 bytes.');
+        const result=await api('saved_views.php',{method:'POST',body:{team_id:Number(state.currentTeamId),name,...taskSearchFilters(),is_default:document.getElementById('saved-search-default').checked}});
+        await refreshSavedViewPicker(result.id);
+        toast('Search saved');
+      });
+    });
+    document.getElementById('task-search-default').addEventListener('click',async()=>{
+      const view=taskSavedViews.find(v=>String(v.id)===document.getElementById('task-search-saved').value);
+      if(!view)return;
+      try{
+        await api('saved_views.php',{method:'PUT',body:{team_id:Number(state.currentTeamId),id:Number(view.id),is_default:!Number(view.is_default)}});
+        await refreshSavedViewPicker(view.id);
+        document.getElementById('task-search-default').textContent=Number(view.is_default)?'Make default':'Remove default';
+        toast('Default search updated');
+      }catch(err){toast(err.message,true);}
+    });
+    document.getElementById('task-search-delete').addEventListener('click',()=>{
+      const view=taskSavedViews.find(v=>String(v.id)===document.getElementById('task-search-saved').value);
+      if(!view)return;
+      promptModal('Delete saved search',`<p>Delete “${esc(view.name)}”? This will not delete any tasks.</p>`,async()=>{
+        await api('saved_views.php',{method:'DELETE',body:{team_id:Number(state.currentTeamId),id:Number(view.id)}});
+        await refreshSavedViewPicker();
+        toast('Saved search deleted');
+      });
+    });
+    const team=Number(state.currentTeamId);
+    const views=await refreshSavedViewPicker();
+    if(state.currentView!=='search' || Number(state.currentTeamId)!==team)return;
+    const defaultView=(views||[]).find(v=>Number(v.is_default)===1);
+    if(defaultView){
+      document.getElementById('task-search-saved').value=String(defaultView.id);
+      document.getElementById('task-search-default').disabled=false;
+      document.getElementById('task-search-default').textContent='Remove default';
+      document.getElementById('task-search-delete').disabled=false;
+      applyTaskSavedView(defaultView);
+    }else await loadTaskSearch();
   }
   async function loadTaskSearch() {
     const results = document.getElementById('task-search-results');
@@ -2065,6 +3295,7 @@
       team_id:String(state.currentTeamId), q:document.getElementById('task-search-q').value.trim(),
       status:document.getElementById('task-search-status').value,
       priority:document.getElementById('task-search-priority').value,
+      list_id:document.getElementById('task-search-list').value,
       mine:document.getElementById('task-search-mine').checked ? '1':'0', limit:'30',
     });
     if (taskSearchCursor) params.set('before_id',String(taskSearchCursor));
@@ -2369,6 +3600,31 @@
     }
   }
 
+  async function loadTaskAttachments(taskId) {
+    const list=document.getElementById('tm-attachments');
+    if(!list||Number(list.dataset.taskId)!==Number(taskId))return;
+    try{
+      const data=await api('attachments.php?task_id='+Number(taskId));
+      if(!list.isConnected||Number(list.dataset.taskId)!==Number(taskId))return;
+      const canManage=iHave(['administrator','manager']);
+      list.innerHTML=(data.attachments||[]).length ? (data.attachments||[]).map(a=>{
+        const id=Number(a.id);
+        const canRemove=canManage||Number(a.uploaded_by)===Number(state.user.id);
+        return `<div class="attachment-item"><div class="attachment-meta">
+          <a href="api/attachments.php?download_id=${id}" class="attachment-link" download>${esc(a.filename)}</a>
+          <small>${Math.max(1,Math.ceil(Number(a.size_bytes)/1024))} KB · ${esc(a.uploader||'Former member')} · ${esc(a.created_at)}</small></div>
+          ${canRemove?`<button type="button" class="btn btn-ghost attachment-remove" data-attachment-id="${id}">Remove</button>`:''}</div>`;
+      }).join('') : '<p class="dependency-empty">No attachments yet.</p>';
+      list.querySelectorAll('.attachment-remove').forEach(button=>button.addEventListener('click',async()=>{
+        if(!confirm('Remove this file from TaskFlow?'))return;
+        button.disabled=true;
+        try{await api('attachments.php',{method:'DELETE',body:{id:Number(button.dataset.attachmentId)}});
+          toast('Attachment removed');loadTaskAttachments(taskId);
+        }catch(e){toast(e.message,true);button.disabled=false;}
+      }));
+    }catch(error){if(list.isConnected)list.textContent=error.message;}
+  }
+
   function renderTaskModal(task, context = {members: state.members, tags: state.tags}) {
     const body = document.getElementById('task-modal-body');
     const canAssignOthers = iHave(['administrator', 'manager']);
@@ -2397,6 +3653,8 @@
         </div>
         <div class="field-group"><label>Start</label><input type="date" id="tm-start" value="${task.start_date || ''}"></div>
         <div class="field-group"><label>Due</label><input type="date" id="tm-due" value="${task.due_date || ''}"></div>
+        <div class="field-group"><label for="tm-estimate">Estimate (hours)</label><input type="number" id="tm-estimate" min="0.0167" max="400" step="any" value="${hoursInput(task.estimate_minutes)}" placeholder="Not estimated"></div>
+        <div class="field-group"><label for="tm-repeat-rule">Repeat after completion</label><select id="tm-repeat-rule" ${task.parent_task_id ? 'disabled' : ''}>${[['none','Does not repeat'],['daily','Every day'],['weekly','Every week'],['biweekly','Every two weeks'],['monthly','Every month']].map(([value,label])=>`<option value="${value}" ${value===(task.recurrence_rule || (Number(task.is_recurring_weekly)?'weekly':'none'))?'selected':''}>${label}</option>`).join('')}</select></div>
       </div>
 
       <div class="field-row">
@@ -2410,8 +3668,14 @@
       </div>
 
       ${canEditTask ? '<button class="btn btn-primary" id="tm-save">Save changes</button>' : '<p class="dependency-help">Read-only task. Only its creator, assignees or managers can change it.</p>'}
+      <button class="btn btn-ghost" id="tm-star" type="button" aria-pressed="${task.is_favorite ? 'true' : 'false'}">${task.is_favorite ? '★ Starred' : '☆ Star task'}</button>
+      <button class="btn btn-ghost" id="tm-watch" type="button" aria-pressed="${!!task.is_watching}">${task.is_watching?'Watching task':'Watch task'} · ${Number(task.watcher_count||0)}</button>
       <button class="btn btn-ghost" id="tm-duplicate" type="button">Duplicate task</button>
+      ${canAssignOthers ? '<button type="button" class="btn btn-ghost" id="tm-save-template">Save as template</button>' : ''}
+      ${Number(task.recurrence_generated_from) ? '<p class="dependency-help">Created automatically from recurring task #'+Number(task.recurrence_generated_from)+'.</p>' : ''}
       ${(iHave(['administrator', 'manager']) || Number(task.created_by) === Number(state.user.id)) ? '<button class="btn btn-ghost" id="tm-delete" style="color:var(--danger);">Delete task</button>' : ''}
+
+      ${task.milestone?`<p class="milestone-inline">Milestone <button type="button" id="tm-milestone" class="milestone-inline-link">${esc(task.milestone.title)}</button>${task.milestone.due_date?' · Target '+fmtDate(task.milestone.due_date):''}</p>`:''}
 
       <div class="section-title">Dependencies</div>
       <p class="dependency-help">${unfinished ? `${unfinished} unfinished prerequisite(s) must be completed before this task can be marked done.` : 'Complete prerequisite tasks first to unblock dependent work.'}</p>
@@ -2434,9 +3698,22 @@
         <button class="btn btn-ghost" type="submit">Add</button>
       </form>` : ''}
 
+      <div class="section-title">Attachments</div>
+      <p class="dependency-help">Files remain private to authorized team members. Downloads require sign-in.</p>
+      <div id="tm-attachments" data-task-id="${Number(task.id)}" aria-live="polite">Loading attachments…</div>
+      ${canEditTask?`<form id="tm-attachment-form" class="attachment-upload-form" enctype="multipart/form-data">
+        <label for="tm-attachment-file">Attach a file (up to 8 MiB)</label>
+        <input type="file" id="tm-attachment-file" accept=".pdf,.png,.jpg,.jpeg,.webp,.txt,.csv,.docx,.xlsx" required>
+        <button class="btn btn-ghost" type="submit">Upload file</button>
+      </form>`:''}
       <div class="section-title">Recent activity</div>
       <div class="task-activity-list">${(task.recent_activity || []).map(a=>`<div class="task-activity-item"><strong>${esc(a.actor)}</strong> ${esc((a.action||'').replaceAll('_',' '))} <span class="comment-time">${esc(a.created_at)}</span></div>`).join('') || '<p class="dependency-empty">No logged changes yet.</p>'}</div>
 
+      <div class="section-title">Effort against estimate</div>
+      <p class="dependency-help">${task.estimate_minutes?`Planned ${hoursText(task.estimate_minutes)}${task.logged_minutes!=null ? ` · Logged ${hoursText(task.logged_minutes)} (${Math.round(100*Number(task.logged_minutes)/Number(task.estimate_minutes))}%)` : ''}`:'No estimate set yet.'} Time may include entries from different weeks.</p>
+      <div class="section-title">Time tracking</div>
+      <p class="dependency-help">Manually log work spent on this task. Entries are attributed to your account. Managers can view team worklogs.</p>
+      <div id="tm-time-panel" data-task-id="${Number(task.id)}" aria-live="polite">Loading time entries…</div>
       <div class="section-title">Comments</div>
       <div id="tm-comments">${task.comments.map(commentHtml).join('') || '<p style="color:var(--text-faint);font-size:13px;">No comments yet.</p>'}</div>
       <form class="add-inline-form" id="tm-add-comment">
@@ -2446,11 +3723,73 @@
     `;
 
     document.getElementById('tm-save')?.addEventListener('click', () => saveTask(task.id));
-    if (!canEditTask) ['tm-title','tm-desc','tm-status','tm-priority','tm-start','tm-due','tm-tags','tm-assignees'].forEach(id => {
+    if (!canEditTask) ['tm-title','tm-desc','tm-status','tm-priority','tm-start','tm-due','tm-estimate','tm-repeat-rule','tm-tags','tm-assignees'].forEach(id => {
       const input=document.getElementById(id);if(input) input.disabled=true;
     });
+    document.getElementById('tm-star').addEventListener('click', async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const saved = await api('favorites.php', {method:task.is_favorite ? 'DELETE' : 'POST',body:{task_id:Number(task.id)}});
+        task.is_favorite = saved.is_favorite;
+        button.textContent = saved.is_favorite ? '★ Starred' : '☆ Star task';
+        button.setAttribute('aria-pressed', String(saved.is_favorite));
+        if (state.currentView === 'my-work' && document.getElementById('my-work-mode')?.value === 'favorites') { myWorkCursor = null; loadMyWork(); }
+      } catch(e) { toast(e.message, true); }
+      finally { button.disabled = false; }
+    });
+    document.getElementById('tm-watch').addEventListener('click',async event=>{
+      const button=event.currentTarget;button.disabled=true;
+      try{
+        const result=await api('task_watch.php',{method:task.is_watching?'DELETE':'POST',body:{task_id:Number(task.id)}});
+        task.is_watching=!!result.is_watching;task.watcher_count=Number(result.watcher_count||0);
+        button.textContent=(task.is_watching?'Watching task':'Watch task')+' · '+task.watcher_count;
+        button.setAttribute('aria-pressed',String(task.is_watching));
+        toast(task.is_watching?'You will receive task updates.':'Task notifications turned off.');
+      }catch(err){toast(err.message,true);}finally{button.disabled=false;}
+    });
+    loadTaskWorklog(task.id);
+    loadTaskAttachments(task.id);
+    document.getElementById('tm-attachment-form')?.addEventListener('submit', async event=>{
+      event.preventDefault();
+      const form=event.currentTarget, file=form.querySelector('#tm-attachment-file').files?.[0];
+      if(!file)return;
+      if(file.size>8*1024*1024){toast('File must be 8 MiB or smaller.',true);return;}
+      const data=new FormData();data.append('task_id',String(task.id));data.append('file',file);
+      const button=form.querySelector('button');button.disabled=true;
+      try{
+        const response=await fetch('api/attachments.php',{method:'POST',credentials:'same-origin',headers:{'X-CSRF-Token':state.csrf},body:data});
+        const result=await response.json();
+        if(response.status===401)showAuthScreen();
+        if(!response.ok)throw new Error(result.error||'Could not upload file.');
+        form.reset();toast('Attachment uploaded');loadTaskAttachments(task.id);
+      }catch(error){toast(error.message,true);}finally{button.disabled=false;}
+    });
     document.getElementById('tm-duplicate').addEventListener('click', () => duplicateTask(task.id));
+    document.getElementById('tm-save-template')?.addEventListener('click', () => {
+      const items = (task.checklist || []).map(x => x.content);
+      promptModal('Save task as template', `<p class="template-hint">Save a reusable task with checklist items. Assignees and dates will not be saved.</p>
+        <label for="p-tpl-title">Template name</label><input id="p-tpl-title" maxlength="255" value="${esc(task.title)}" required>
+        <label for="p-tpl-description">Description</label><textarea id="p-tpl-description" maxlength="5000">${esc(task.description || '')}</textarea>`, async () => {
+        const title = document.getElementById('p-tpl-title').value.trim();
+        if (!title) throw new Error('Enter a template name.');
+        await api('templates.php', { method:'POST', body:{team_id:Number(task.team_id), title,
+          description:document.getElementById('p-tpl-description').value, priority:task.priority, estimate_minutes:task.estimate_minutes || null, items} });
+        toast('Template saved');
+      });
+    });
     document.getElementById('tm-delete')?.addEventListener('click', () => deleteTask(task.id));
+    document.getElementById('tm-milestone')?.addEventListener('click',async()=>{
+      closeTaskModal();
+      if(Number(state.currentTeamId)!==Number(task.team_id)&&iHave(['administrator'])){
+        state.currentTeamId=Number(task.team_id);
+        const selector=document.getElementById('team-select');if(selector)selector.value=String(task.team_id);
+        await loadTeamContext();
+      }
+      milestoneSelectedId=Number(task.milestone.id);
+      milestoneListFilter='';
+      await setView('milestones');
+    });
     body.querySelectorAll('.dependency-open').forEach(btn => btn.addEventListener('click', () => openTaskModal(Number(btn.dataset.dependencyId))));
     body.querySelectorAll('.dependency-remove').forEach(btn => btn.addEventListener('click', async () => {
       if (!confirm('Remove this task prerequisite?')) return;
@@ -2544,22 +3883,25 @@
   }
 
   async function saveTask(taskId) {
+    let estimateMinutes;
+    try { estimateMinutes = readEstimateHours('tm-estimate'); } catch(err) { toast(err.message,true); return; }
     const body = {
-      id: taskId,
+      id: taskId, estimate_minutes: estimateMinutes,
       title: document.getElementById('tm-title').value.trim(),
       description: document.getElementById('tm-desc').value,
       status: document.getElementById('tm-status').value,
       priority: document.getElementById('tm-priority').value,
       start_date: document.getElementById('tm-start').value,
       due_date: document.getElementById('tm-due').value,
+      recurrence_rule: document.getElementById('tm-repeat-rule').value,
       tag_ids: Array.from(document.getElementById('tm-tags').selectedOptions).map(o => Number(o.value)),
     };
     if (iHave(['administrator', 'manager'])) {
       body.assignee_ids = Array.from(document.getElementById('tm-assignees').selectedOptions).map(o => Number(o.value));
     }
     try {
-      await api('task.php', { method: 'PUT', body });
-      toast('Task saved');
+      const result = await api('task.php', { method: 'PUT', body });
+      toast(result.recurrence_new_task_id ? 'Task completed. Next weekly task created.' : 'Task saved');
       closeTaskModal();
       refreshCurrentView();
     } catch (err) { toast(err.message, true); }
@@ -2600,7 +3942,13 @@
       openTaskModal(taskId);
     } catch (err) { toast(err.message, true); }
   }
-  function closeTaskModal() { document.getElementById('task-modal').classList.add('hidden'); }
+  function closeTaskModal() {
+    document.getElementById('task-modal').classList.add('hidden');
+    // Refresh a report after editing its task without resetting date/scope filters.
+    if (state.currentView === 'time-reports' && document.getElementById('time-report-filters')) {
+      timeReportCursor = null;loadTimeReport();
+    }
+  }
   document.getElementById('close-task-modal').addEventListener('click', closeTaskModal);
   document.getElementById('task-modal').addEventListener('click', e => { if (e.target.id === 'task-modal') closeTaskModal(); });
 
@@ -2610,6 +3958,9 @@
     else if (state.currentView === 'board') renderBoard();
     else if (state.currentView === 'my-work') renderMyWork();
     else if (state.currentView === 'search') renderSearchTasks();
+    else if (state.currentView === 'calendar') renderCalendar();
+    else if (state.currentView === 'workload') renderWorkload();
+    else if (state.currentView === 'milestones') renderMilestones();
   }
 
   // ---------------------------------------------------------------

@@ -1,34 +1,23 @@
 <?php
+/** Team-scoped keyset audit browsing. Org-wide access requires administrator. */
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/activity_filters.php';
 start_secure_session();
 $me = current_user_record();
-
-if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-    json_error('Method not allowed.', 405);
-}
-
-$teamId = (int) ($_GET['team_id'] ?? 0);
-$limit = min(100, max(1, (int) ($_GET['limit'] ?? 30)));
-$pdo = get_pdo();
-
-if ($teamId === 0) {
-    // Org-wide feed — Administrator only.
-    if (!in_array('administrator', $me['roles'], true)) json_error('Only an Administrator can view org-wide activity.', 403);
-    $stmt = $pdo->prepare(
-        'SELECT a.id, a.action, a.detail, a.created_at, a.task_id, u.name, u.avatar_color, t.name AS team_name
-         FROM activity_log a JOIN users u ON u.id = a.user_id LEFT JOIN teams t ON t.id = a.team_id
-         ORDER BY a.created_at DESC LIMIT ' . $limit
-    );
-    $stmt->execute();
-    json_response(['activity' => $stmt->fetchAll()]);
-}
-
-require_team_access($teamId);
-$stmt = $pdo->prepare(
-    'SELECT a.id, a.action, a.detail, a.created_at, a.task_id, u.name, u.avatar_color
-     FROM activity_log a JOIN users u ON u.id = a.user_id
-     WHERE a.team_id = ? ORDER BY a.created_at DESC LIMIT ' . $limit
-);
-$stmt->execute([$teamId]);
-
-json_response(['activity' => $stmt->fetchAll()]);
+if (effective_method() !== 'GET') json_error('Method not allowed.',405);
+$teamId = filter_var($_GET['team_id'] ?? 0, FILTER_VALIDATE_INT, ['options'=>['min_range'=>0]]);
+if ($teamId === false || $teamId === null) json_error('Invalid team.',400);
+if ((int)$teamId === 0) {
+    if (!in_array('administrator',$me['roles'],true)) json_error('Only an Administrator may view organization activity.',403);
+} else require_team_access((int)$teamId);
+try { $filters = taskflow_activity_filters($_GET); }
+catch (InvalidArgumentException $e) { json_error($e->getMessage(),400); }
+$limit = filter_var($_GET['limit'] ?? 30, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1,'max_range'=>50]]);
+if (!$limit) $limit=30;
+if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
+[$sql,$params] = taskflow_activity_query((int)$teamId,$filters,$limit+1);
+$stmt=get_pdo()->prepare($sql);$stmt->execute($params);
+$rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
+$hasMore=count($rows)>$limit;
+if($hasMore) array_pop($rows);
+json_response(['activity'=>$rows, 'next_before_id'=>$hasMore && $rows ? (int)end($rows)['id'] : null]);

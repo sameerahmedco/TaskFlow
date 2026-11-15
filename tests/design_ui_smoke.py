@@ -1,4 +1,4 @@
-"""Mocked Chrome UI acceptance for TaskFlow 1.0.0; no real DB is used."""
+"""Mocked Chrome UI acceptance for TaskFlow 1.1.0; no real DB is used."""
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 import re
@@ -95,7 +95,7 @@ with sync_playwright() as p:
     page.on('pageerror', lambda e: errors.append(str(e)))
     load_ui(page, authenticated=True)
     assert page.locator('#view-title').inner_text() == 'My Work'
-    assert 'v1.0.0' in page.locator('.sidebar-version').inner_text()
+    assert 'v1.10.0' in page.locator('.sidebar-version').inner_text()
     assert page.locator('.nav-svg').count()>15
     page.screenshot(path=str(screens/'workspace.png'),full_page=True)
     page.locator('#topbar-search').click()

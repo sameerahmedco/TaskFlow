@@ -14,7 +14,7 @@ To publish *your own* repository:
 cd TaskFlow
 git init
 git add .
-git commit -m "TaskFlow 1.0.0: unified first release"
+git commit -m "TaskFlow 1.10.0: private files, recurring tasks and audit tools"
 # Create your own empty GitHub repository in the GitHub UI, then:
 git remote add origin https://github.com/YOUR-ORG/YOUR-REPO.git
 git branch -M main
@@ -25,4 +25,4 @@ No remote repository is created by the source ZIP.
 
 ## TaskFlow GitHub checks
 
-Keep both workflow files in `.github/workflows/`: `ci.yml` checks syntax, source regression and no-DB feature vectors; `mysql-integration.yml` provisions a disposable MySQL 8 service and checks fresh schema/MFA storage. The latter has **not been run locally** and should be observed on your first pull request. Choose a LICENSE before making the project public, and never commit `.installed`, `.setup-key` or private DB configs.
+Keep both workflow files in `.github/workflows/`: `ci.yml` checks syntax, source regression and no-DB feature vectors; `mysql-integration.yml` provisions a disposable MySQL 8 service and checks the fresh schema, MFA, dependencies, templates, recurring tasks, active timers, timesheet review audit records and milestones. The latter has **not been run locally** and should be observed on your first pull request. Choose a LICENSE before making the project public, and never commit `.installed`, `.setup-key` or private DB configs.
