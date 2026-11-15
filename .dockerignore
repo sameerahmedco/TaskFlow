@@ -1,0 +1,9 @@
+.git
+.github
+.env
+.env.*
+config/config.local.php
+config/.installed
+config/.setup-key
+*.zip
+*.log

@@ -1,0 +1,14 @@
+<?php
+// Copy to config.local.php only for a private deployment or an existing installation.
+// New installations should use the browser setup wizard instead.
+// Keep this file outside version control and restrict permissions to the PHP user.
+return [
+    'db_host' => 'localhost',
+    'db_port' => '3306',
+    'db_name' => 'taskflow',
+    'db_user' => 'taskflow',
+    'db_pass' => 'REPLACE_WITH_PRIVATE_DATABASE_PASSWORD',
+    'app_url' => 'https://tasks.example.org',
+    'app_key' => 'REPLACE_WITH_BASE64_ENCODED_32_RANDOM_BYTES',
+    'app_env' => 'production',
+];

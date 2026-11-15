@@ -1,0 +1,15 @@
+# Private runtime configuration and setup secrets
+/config/config.local.php
+/config/.installed
+/config/.setup-key
+.env
+.env.*
+!.env.example
+# Runtime/local data
+*.log
+/vendor/
+/node_modules/
+/.idea/
+/.vscode/
+.DS_Store
+/coverage/

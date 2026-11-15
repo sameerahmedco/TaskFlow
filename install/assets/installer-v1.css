@@ -1,0 +1,44 @@
+/* TaskFlow 1.0.0 first-run workspace wizard */
+:root{--ink:#17304a;--muted:#647990;--line:#dce6ee;--blue:#1077d4;--aqua:#21bca5}
+body{background:radial-gradient(ellipse at 0 0,#edf7fa 0,transparent 45%),#f5f8fc;color:var(--ink)}
+.page{max-width:1140px;padding:29px clamp(18px,4vw,48px) 24px}
+.masthead{gap:12px;padding-bottom:19px;border-bottom:1px solid #dfe8ef}
+.masthead strong{font-size:21px}
+.masthead span{font-size:10px;letter-spacing:.12em}
+.install-brand-pill{margin-left:auto;background:#e6f1fb;border:1px solid #c6e4f3;border-radius:8px;padding:7px 10px;letter-spacing:.08em;color:#236c92;font-size:10px;font-weight:750}
+.installer-grid{display:grid;grid-template-columns:minmax(260px,.84fr) minmax(420px,1.16fr);gap:clamp(20px,4vw,62px);align-items:start;padding-top:38px}
+.installer-intro{position:sticky;top:28px;padding-top:5px}
+.hero{padding:15px 0 31px;text-align:left}
+.eyebrow{color:#0d998f;letter-spacing:.14em}
+.hero h1{font-size:clamp(37px,4.5vw,61px);line-height:1.08;letter-spacing:-.065em;margin:17px 0 20px}
+.hero h1 em{color:#158b96;font-style:normal}
+.hero p{margin:0;color:var(--muted);font-size:15px;line-height:1.7;max-width:445px}
+.setup-highlights{display:grid;gap:19px;margin:13px 0 30px}
+.setup-highlights>div{display:flex;gap:15px;align-items:flex-start}
+.setup-highlight-icon{width:34px;height:34px;flex-shrink:0;display:grid;place-items:center;background:#e1f3f6;border:1px solid #c8e7ec;color:#117b91;font:750 11px ui-monospace,Consolas,monospace;border-radius:11px}
+.setup-highlights strong{font-size:13px}
+.setup-highlights p{margin:2px 0 0;color:var(--muted);font-size:12px;line-height:1.55}
+.setup-help{font-size:12px;color:#8397a8;line-height:1.6}
+.installer-main{min-width:0}
+.steps{margin:5px 0 22px;gap:0;border:1px solid #dce5ed;border-radius:13px;padding:9px;background:#fff}
+.steps li{position:relative;font-size:11px;gap:6px}
+.steps li.active{color:#0e7abb}
+.steps span{width:25px;height:25px;font-size:11px}
+.steps .active span,.steps .complete span{background:#0e87c8;color:white}
+.panel{padding:34px 32px;border-color:#dce7f0;border-radius:16px;box-shadow:0 12px 45px rgb(35 73 115 / 8%)}
+.panel h2{font-size:27px;letter-spacing:-.045em;line-height:1.2}
+.panel>p{font-size:13.5px;line-height:1.65;margin-bottom:23px}
+.step-tag{letter-spacing:.12em;color:#168c94}
+.fields{gap:17px}
+.fields input{padding:12px 13px;border-radius:9px;font-size:13px;min-height:45px}
+.fields label{font-size:12px}
+.check-row{padding:11px 13px}
+.check-row strong{font-size:11px}
+.actions{align-items:center;justify-content:flex-end;flex-wrap:wrap;margin-top:20px;gap:10px}
+.actions .btn{border-radius:10px;min-height:44px}
+.step-counter{color:var(--muted);font-size:12px;margin-right:auto;font-weight:600}
+.notice{background:#eaf5fa;border-color:#d2e8f0;color:#365c77}
+.completion{max-width:625px;margin:65px auto 40px}
+footer{margin:55px 0 15px}
+@media(max-width:920px){.installer-grid{grid-template-columns:1fr;gap:0}.installer-intro{position:static}.hero{padding:10px 0 25px}.hero h1{font-size:40px}.setup-highlights{grid-template-columns:repeat(3,1fr);gap:13px}.setup-highlights>div{gap:8px}.steps{margin-top:11px}}
+@media(max-width:620px){.page{padding:19px 14px}.install-brand-pill{display:none}.installer-grid{padding-top:20px}.hero h1{font-size:36px}.hero p{font-size:13px}.setup-highlights{grid-template-columns:1fr;gap:11px}.steps{padding:9px 7px}.steps li{font-size:0}.panel{padding:25px 20px}.fields{gap:13px}.actions{gap:7px}.actions .btn{padding:10px 16px}.step-counter{width:100%}.completion{margin:38px auto}}
