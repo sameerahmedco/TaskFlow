@@ -82,3 +82,71 @@ Uploads are **disabled by default**. Provision a writable directory outside the 
 Set `upload_max_filesize >= 8M`, `post_max_size >= 10M`, and enable PHP `fileinfo`. TaskFlow permits only selected non-executable download formats. It does **not** scan attachments for malware and does **not** embed/preview them in HTML. Add your own antivirus and retention controls for sensitive deployments. Back up files and MySQL together (matching backup timestamps), restrict file-system read access, and use a secure shared disk only if running multiple app nodes.
 
 Files from deleted tasks may remain on disk after database cascades; use `php bin/attachments-gc.php` to preview and `php bin/attachments-gc.php --delete` to reclaim old orphaned files. The cleaner is CLI-only, caps each pass at 1,000 files, and skips files younger than 24 hours. Repeat runs on large datasets. Test restores before production deployment.
+
+
+## Password recovery and invitations (1.12.0)
+
+TaskFlow's public recovery page is `/recover/`. It does **not** allow public sign-up. Recovery requires an active existing account, SMTP with TLS/SSL enabled and configured in Settings, a valid single-use token and a strong new password. The public `request` action gives an account-existence-neutral response; direct SMTP delivery can still be distinguishable by response time. Configure `TASKFLOW_APP_URL` to an HTTPS origin (or localhost development) to prevent host-header-based link poisoning.
+
+**Preferred email delivery for larger organizations:** set `TASKFLOW_MAIL_QUEUE=1` in the PHP worker environment and run `php bin/process-mail.php` every minute. This encrypts private recovery/invitation links at rest in the email queue using the *existing* APP_KEY; its loss makes queued messages unreadable. Without the queue, mail is sent directly over SMTP. Monitor queue failures and delayed sends: recovery links expire after 30 minutes. The queue is not an encrypted email transport; use a trusted SMTP provider over TLS. Apply `1.12.0.sql` before switching on the feature.
+
+The recovery endpoint rate-limits requests per IP and pseudonymous email hash, but network-level throttling and independent security tests are still needed. Resetting the password revokes remembered devices and other signed-in sessions via auth-version checks; authenticator MFA stays enabled. A user who has lost their MFA device must contact an administrator for the separate MFA recovery process.
+
+## Secure invitations (1.11.0)
+
+Invitation creation requires an authenticated administrator, active session CSRF token and a configured trusted `TASKFLOW_APP_URL`. The public recipient page is `/invite/`, but **this is not public registration**: activation requires a fresh 64-character secret generated server-side, valid for 72 hours and usable once. Invite links use URL fragments so tokens are not included in web server request logs, and the page clears the fragment immediately. Only token hashes are stored in MySQL.
+
+An issuing administrator can send the invitation via configured TLS/SSL SMTP or copy the URL from the dialog and share it privately. A lost link cannot be recovered: issue a replacement and the old pending link is revoked. Do not include secret links in tickets, screenshots or browser analytics. Restrict public traffic to `/api/invite_accept.php` with your normal edge rate limits; enable MFA for newly created privileged accounts. Schedule `bin/maintenance.php` to prune old records. Verify invitation acceptance, expiry, revocation and concurrent redemption on MySQL 8 before launch.
+
+## Time off and capacity planning (1.13.0)
+
+Apply `docs/migrations/1.13.0.sql` after 1.12.0 on a disposable staging database before production. No extra PHP extension or cron service is required. Employees request leave on **Time off**; managers approve or decline team members' requests. Decisions create an in-app inbox notice for the requester. Review access follows existing team roles; administrators cannot approve their own requests.
+
+The Workload Planner uses a five-day UTC Monday-Friday schedule to compute effective weekly availability from approved leave. This is a planning estimate only: it ignores organization holidays, custom weekend policies, and half-day leave. Preserve private leave notes in database backups and avoid including sensitive personal details.
+
+## Custom workweek and holidays (1.14.0)
+
+Apply `docs/migrations/1.14.0.sql` **after** the 1.13 migration to a backed-up staging database. Existing leave defaults to full-day and capacity rows default to Monday–Friday (`workdays_mask=31`). Authorized employees may configure their own seven-day work pattern through Workload Planner; managers may configure their team's patterns and one-off Team holidays. No new cron job or external holiday API is needed. Run `php tests/scheduling_unit.php` and the MySQL integration workflow before production, then verify overlapping half-day requests and the new availability calculations with real database connections. The weekly forecast assumes capacity is equally distributed among configured workdays, not timesheets/payroll hours.
+
+### Team availability and leave balances (1.15.0)
+
+Apply `docs/migrations/1.15.0.sql` **once after** the 1.14 migration to a backed-up staging database. The migration only adds `leave_allowances`. Approved team absences and holidays can be viewed in the Team availability screen; pending leave, request reasons, and reviewer notes remain outside that view. Individual annual leave allowances are optional and editable only by authorized managers. The calculation respects each employee's scheduled days and team holidays. It counts approved future leave immediately; it is **not** payroll, accrued balance, entitlement enforcement or labor-law compliance. Use tests `php tests/leave_balances_unit.php` and `python3 tests/leave_balances_ui_smoke.py` plus a real MySQL team/member authorization test before production. All year boundaries are UTC.
+
+### Leave handoffs and team report downloads (1.16.0)
+
+Apply `docs/migrations/1.16.0.sql` after 1.15.0, **once** on a backed-up staging database. Leave coverage is an optional acknowledgement, not a change in task assignment or approval. The backing colleague must be active in the requester's team, and only that colleague can accept/decline the pending handoff. Their inbox redacts private leave reasons and reviewer notes. Changes to team membership may require a new request; coverage does not guarantee availability during the selected dates.
+
+The monthly availability `.ics` file requires the user's existing authenticated session and team access, lists only approved leave and holidays, and is not a continuously updating subscription. It clips events to the selected month; partial days lack hour boundaries and are explicitly labeled as partial days. A downloaded file can be redistributed outside TaskFlow. Annual leave-balance CSV requires a manager/administrator and is capped to 500 active members and 10,000 approved leave records per export. Never treat these planning balances as statutory entitlements. Verify direct unauthorized HTTP requests and the MySQL integration test before production.
+
+## Team announcements (1.17.0)
+
+From a backed-up **1.16.0** installation, apply `docs/migrations/1.17.0.sql` once to MySQL 8 staging. The two new tables keep announcement text and per-user receipt metadata isolated to each existing team, with foreign keys and indexes supporting bounded team feeds. No external service, cron job or additional PHP extension is introduced. A manager/admin can create up to 60 notices per team per hour. Read receipts and member rosters can be sensitive personal data: review retention requirements and do not publish private HR material as a team-wide notice. Run live role-based HTTP tests and multi-user acknowledgement tests in staging before production.
+
+
+## v1.18.0 upgrade note
+
+From TaskFlow 1.17.0, back up and test restoration before applying `docs/migrations/1.18.0.sql` once on a staging clone. The migration creates the `project_risks` table and requires the existing `lists(id,team_id)` composite unique key. Deploy the 1.18.0 PHP/JS/CSS without replacing `config/config.local.php`, `config/.installed` or `TASKFLOW_APP_KEY`. Validate project risk permissions and the new manager CSV export before production.
+
+## v1.19.0: project decisions and optional risk reminders
+
+Upgrade from 1.18.0 by applying `docs/migrations/1.19.0.sql` once to a backed-up MySQL 8 clone (two new tables and a risk due-date index), then deploy the code while retaining private configuration and encryption keys. Test role, project/team and stale-version restrictions before production.
+
+The risk review reminder job is **opt-in**. To run it each day at 00:05 UTC, configure a server cron with the PHP CLI and the installed app path (replace `/var/www/taskflow`):
+
+```cron
+5 0 * * * cd /var/www/taskflow && /usr/bin/php bin/risk-reminders.php >> /var/log/taskflow-risk-reminders.log 2>&1
+```
+
+Secure log permissions and avoid public web access to `bin/`. It produces inbox notifications only, limited to the due date and following day. No SMTP setup is required for these alerts. Ensure the database runs on UTC for predictable scheduling; the worker uses `UTC_DATE()` and checks individual notification markers to prevent repeated deliveries. Do not schedule before migrating.
+
+## v1.20.0 interface deployment
+
+This release has **no database migration** from v1.19.0. Deploy `assets/css/ui-overhaul.css`, `assets/js/ui-enhancements.js` and `install/assets/installer-ui-overhaul.css` with the existing application files. Keep cache-busting PHP stylesheet/script tags intact. Verify HTTP 200 responses for these local assets and validate sign-in, permissions, mobile navigation, page switching and appearance across supported browsers. Back up existing data and retain all private configuration, application keys and installer lock. Versions older than v1.19.0 still require their historical SQL migrations.
+
+## UI theme update (1.21.0)
+
+When upgrading from 1.20.0, no SQL migration is required. Deploy the new `assets/css/theme-accessibility.css` and `assets/js/theme-boot.js` together with the updated application and version files. Preserve all private files and keys. Ensure both assets are served over HTTPS with correct MIME types and that proxies/CDNs do not retain outdated CSS or JS. Check Light/Dark/System on sign-in and authenticated screens, including task modals and project decisions. Test at narrow widths and with the device appearance changing while TaskFlow is open.
+
+## Theme palettes (1.22.0)
+
+Deploy `assets/css/theme-palettes.css` **after** `theme-accessibility.css`; preserve `assets/js/theme-boot.js` in the document head so saved appearances are applied before rendering. White-background Light remains the first-run default and the documented GitHub preview. System is reactive, Ocean/Forest/Lavender/Sunset are light-based themes, and Midnight is dark-based. Theme choice is client-side only. Check HTTP 200 responses, CDN asset cache invalidation, sign-in/multi-factor pages, dark and custom palettes, and mobile controls before production. No SQL migration is required from v1.21.0.

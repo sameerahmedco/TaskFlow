@@ -777,3 +777,141 @@ a { color: var(--accent); }
 .task-activity-list { border-top:1px solid var(--border); margin:10px 0 15px; max-height:165px;overflow-y:auto; }
 .task-activity-item { padding:8px 3px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-dim); }
 .task-activity-item strong { color:var(--text); }
+
+/* TaskFlow 1.11.0: Invitation management integrates with the existing people list. */
+.invitation-panel{margin-top:26px;border-top:1px solid var(--border);padding-top:20px}
+.invitation-panel h3{font-size:17px;margin:0 0 6px}.invite-row{gap:12px;flex-wrap:wrap}.invite-row .member-info{min-width:0;flex:1 1 300px}.invite-row .member-info div{overflow-wrap:anywhere}
+
+/* TaskFlow 1.13.0: self-service leave and approval queue. */
+.leave-layout {display:grid;grid-template-columns:minmax(240px,360px) minmax(0,1fr);gap:18px;align-items:start;}
+.leave-request-card,.leave-history-card {background:var(--surface, #fff);border:1px solid var(--border, #dde4ec);border-radius:16px;padding:20px;min-width:0;}
+.leave-request-card h3,.leave-history-card h3 {margin:0 0 8px;font-size:1.1rem;}
+.leave-request-card>p {color:var(--text-muted, #64748b);font-size:.87rem;line-height:1.55;margin:0 0 16px;}
+.leave-request-form {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+.leave-request-form label {display:grid;gap:5px;font-size:.84rem;font-weight:600;min-width:0;}
+.leave-request-form input,.leave-request-form textarea,.leave-heading select {width:100%;min-width:0;border:1px solid var(--border, #d2dce8);border-radius:9px;padding:10px;background:var(--surface, #fff);color:var(--text, #18283e);font:inherit;}
+.leave-request-form .leave-wide {grid-column:1/-1;}
+.leave-request-form button {grid-column:1/-1;justify-self:start;}
+.leave-heading {display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;}
+.leave-heading label {display:flex;align-items:center;gap:7px;font-size:.86rem;}
+.leave-list {display:grid;gap:12px;}
+.leave-item {border:1px solid var(--border, #dfe6ef);border-radius:12px;padding:14px;min-width:0;overflow-wrap:anywhere;}
+.leave-item-main {display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.leave-status {font-size:.72rem;font-weight:700;padding:4px 9px;border-radius:999px;text-transform:capitalize;background:#eff3f7;color:#516077;}
+.leave-approved {background:#dcfce7;color:#166534;}
+.leave-pending {background:#fef3c7;color:#92400e;}
+.leave-declined {background:#fee2e2;color:#991b1b;}
+.leave-dates {margin:8px 0;font-size:.9rem;}
+.leave-note,.leave-review-note {color:var(--text-muted,#64748b);white-space:pre-wrap;font-size:.84rem;line-height:1.55;margin:6px 0;}
+.leave-item-actions {display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:8px;}
+.leave-item-actions:empty {display:none;}
+.leave-empty {padding:24px 10px;color:var(--text-muted,#64748b);text-align:center;}
+.leave-adjustment {display:block;color:var(--text-muted,#64748b);margin-top:3px;}
+@media (max-width:800px) {.leave-layout{grid-template-columns:1fr;}.leave-request-card,.leave-history-card{padding:15px;}}
+@media (max-width:420px) {.leave-request-form{grid-template-columns:1fr;}.leave-request-form .leave-wide,.leave-request-form button{grid-column:1;}}
+
+/* TaskFlow v1.14: custom schedules and holiday calendar. */
+.workdays-editor { width:100%; border-top:1px solid var(--border,#dce3ec); padding-top:9px; margin-top:8px; }
+.workdays-editor summary { cursor:pointer; font-weight:600; font-size:12px; }
+.workdays-options { display:flex; flex-wrap:wrap; gap:7px 12px; padding:10px 0; }
+.workdays-options label { display:inline-flex; gap:5px; align-items:center; font-size:12px; white-space:nowrap; }
+.workdays-options input { accent-color:var(--primary,#1382a5); }
+.holiday-toolbar { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:14px 0; max-width:600px; }
+.holiday-toolbar strong { font-size:19px; font-weight:750; }
+.holiday-add-form { display:flex; flex-wrap:wrap; align-items:end; gap:12px; padding:16px; background:var(--surface,#fff); border:1px solid var(--border,#dce3ec); border-radius:14px; margin-bottom:14px; }
+.holiday-add-form label { display:flex; flex-direction:column; gap:6px; flex:1 1 180px; min-width:140px; font-size:13px; }
+.holiday-add-form input { width:100%; min-width:0; }
+.holiday-panel { background:var(--surface,#fff); border:1px solid var(--border,#dce3ec); border-radius:14px; padding:14px; }
+.holiday-list { display:grid; gap:7px; }
+.holiday-row { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px; border:1px solid var(--border,#dce3ec); border-radius:10px; }
+.holiday-row strong { overflow-wrap:anywhere; }
+.holiday-row p { margin:3px 0 0; font-size:12px; color:var(--muted,#68788b); }
+@media (max-width:600px){ .holiday-add-form { flex-direction:column; align-items:stretch; } .holiday-add-form label, .holiday-add-form button { width:100%; flex:auto; } .workdays-options { gap:7px; } }
+
+
+/* TaskFlow 1.15: responsive absence calendar and advisory annual balances. */
+.availability-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin:18px 0}
+.availability-toolbar label{display:flex;align-items:center;gap:8px;font-weight:600}
+.availability-toolbar input,.availability-toolbar select,.balance-edit-form input{background:var(--surface,#fff);color:var(--text,#243046);border:1px solid var(--border,#dce3ec);border-radius:8px;padding:8px;max-width:100%}
+.availability-results,.balance-card{background:var(--surface,#fff);border:1px solid var(--border,#dce3ec);border-radius:14px;padding:16px;min-width:0}
+.absence-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.absence-heading h3,.absence-heading p{margin:0}
+.absence-weekdays,.absence-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.absence-weekdays span{text-align:center;font-size:.8rem;font-weight:700;padding:8px 0}
+.absence-day{min-width:0;min-height:100px;padding:9px;border:1px solid var(--border,#dce3ec);border-radius:10px;display:flex;flex-direction:column;gap:5px}
+.absence-day time{font-weight:700;font-size:.85rem}
+.absence-tag{display:block;overflow-wrap:anywhere;background:#e8f2ff;color:#164a83;border-radius:6px;font-size:.73rem;padding:4px 6px}
+.absence-tag.absence-holiday{background:#fff2d0;color:#6a4600}
+.absence-more summary{cursor:pointer;font-size:.74rem;font-weight:600}
+.absence-legend{font-size:.83rem;color:var(--muted,#697486);margin:14px 0 0}
+.absence-warning{padding:10px;border:1px solid #d1a75a;border-radius:8px}
+.balance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;margin-top:12px}
+.balance-card strong{display:block;margin-bottom:14px}
+.balance-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.balance-stats span{display:flex;flex-direction:column;gap:5px;overflow-wrap:anywhere}
+.balance-stats small{color:var(--muted,#697486);font-size:.73rem}
+.balance-stats b{font-size:.95rem}
+.balance-edit-form{display:flex;gap:8px;align-items:end;margin-top:18px}
+.balance-edit-form label{flex:1;min-width:0;font-size:.79rem;display:flex;flex-direction:column;gap:5px}
+.balance-edit-form button{flex-shrink:0}
+@media(max-width:740px){.absence-weekdays,.absence-blank{display:none}.absence-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.absence-day{min-height:75px}.availability-results{padding:10px}}
+@media(max-width:390px){.absence-grid{grid-template-columns:1fr}.absence-day{min-height:auto}}
+
+
+/* TaskFlow 1.17: lightweight team announcements / receipts */
+.announcement-form,.announcement-card{border:1px solid var(--border,#dce5ec);border-radius:16px;background:var(--surface,#fff);padding:22px;margin:18px 0;box-shadow:0 4px 20px rgba(20,42,60,.035)}
+.announcement-form h3,.announcement-card h3{margin:0 0 14px;font-size:1.1rem}
+.announcement-form>label{display:block;margin:12px 0 6px;font-weight:600}
+.announcement-form input:not([type=checkbox]),.announcement-form textarea{display:block;width:100%;box-sizing:border-box;padding:11px 13px;border:1px solid var(--border,#d0d8e2);border-radius:10px;background:var(--surface,#fff);color:var(--text,#182738);font:inherit}
+.announcement-options{display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin:14px 0}
+.announcement-options label,.announcement-archive-label{display:flex;align-items:center;gap:8px;font-size:.9rem}
+.announcement-options input[type=date]{max-width:190px;margin-left:7px}
+.announcement-actions,.announcement-card-actions{display:flex;gap:9px;align-items:center;justify-content:flex-start;flex-wrap:wrap}
+.announcement-actions{justify-content:space-between}.announcement-actions span{color:var(--text-muted,#66788b);font-size:.85rem}
+.announcement-card.announcement-unread{border-left:4px solid #1399bb}
+.announcement-meta{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-bottom:10px}
+.announcement-meta time{margin-left:auto;color:var(--text-muted,#6a7b8a);font-size:.8rem}
+.announcement-flag{background:rgba(48,138,162,.1);border-radius:99px;padding:4px 9px;font-size:.77rem;font-weight:600}
+.announcement-new{background:rgba(25,153,184,.18)}
+.announcement-author,.announcement-expiry,.announcement-stats{color:var(--text-muted,#67798b);font-size:.85rem}
+.announcement-body{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;margin:12px 0 18px}
+.announcement-card-actions{margin-top:18px}.announcement-acknowledged{font-size:.86rem;color:#08865b;font-weight:600}
+.announcement-receipts{margin-top:16px;padding:14px;border-radius:12px;background:var(--surface-secondary,#f6f9fb);border:1px solid var(--border,#dce5ec)}
+.announcement-receipts h4{margin:0 0 8px}.announcement-receipt-row{display:flex;justify-content:space-between;gap:14px;border-top:1px solid var(--border,#dce5ec);padding:8px 0;font-size:.87rem}
+.announcement-receipt-row>span:last-child{white-space:nowrap;color:var(--text-muted,#67798b)}
+@media(max-width:600px){.announcement-form,.announcement-card{padding:15px}.announcement-options{align-items:flex-start;flex-direction:column;gap:10px}.announcement-actions{align-items:flex-start;flex-direction:column}.announcement-card-actions .btn{flex:1;min-width:130px}.announcement-meta time{margin-left:0;width:100%}}
+
+/* v1.19: responsive project decision register. */
+.decision-panel{margin-top:22px;background:var(--surface,#fff);border:1px solid var(--border,#dfe6ed);border-radius:18px;padding:20px}
+.decision-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.decision-section-heading h3{margin:0;font-size:1.12rem}
+.decision-create-form{padding:18px;border:1px solid var(--border,#dfe6ed);border-radius:14px;margin-bottom:18px;background:var(--surface-secondary,#f7f9fb)}
+.decision-form-grid,.decision-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.decision-form-grid label,.decision-filters label{display:flex;flex-direction:column;gap:6px;font-size:.86rem;font-weight:600;min-width:0}
+.decision-form-grid input,.decision-form-grid select,.decision-form-grid textarea,.decision-filters select{width:100%;min-width:0;max-width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--border,#cbd5e1);background:var(--surface,#fff);color:inherit;font:inherit}
+.decision-form-grid textarea{resize:vertical;min-height:72px}
+.decision-span{grid-column:1/-1}
+.decision-form-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px;flex-wrap:wrap}
+.decision-form-actions span{font-size:.83rem;color:var(--text-secondary,#667085)}
+.decision-filters{grid-template-columns:minmax(150px,1fr) minmax(145px,1fr) auto auto;align-items:end;margin-bottom:18px}
+.decision-filters .decision-archived{flex-direction:row;align-items:center;padding-bottom:11px;white-space:nowrap}
+.decision-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:20px 0}
+.decision-summary>div{background:var(--surface,#fff);border:1px solid var(--border,#e5e7eb);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:5px}
+.decision-summary strong{font-size:1.7rem;font-weight:750;font-variant-numeric:tabular-nums}
+.decision-summary span{font-size:.76rem;color:var(--text-secondary,#64748b)}
+.decision-feed{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+.decision-card{border:1px solid var(--border,#dfe6ed);background:var(--surface,#fff);border-radius:14px;padding:17px;min-width:0;overflow-wrap:anywhere}
+.decision-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.decision-card h4{margin:12px 0 8px;font-size:1rem;line-height:1.4}
+.decision-context,.decision-outcome p{font-size:.86rem;line-height:1.6;white-space:pre-wrap;margin:0;color:var(--text-secondary,#475569)}
+.decision-project{font-size:.76rem;color:var(--text-secondary,#64748b)}
+.decision-status{border-radius:999px;padding:5px 10px;font-weight:700;font-size:.73rem;background:#e6edf6;color:#274568}
+.decision-status-approved{background:#def7e9;color:#176a42}
+.decision-status-rejected{background:#ffe7e7;color:#8b2435}
+.decision-status-deferred{background:#fff1cc;color:#76560c}
+.decision-outcome{background:var(--surface-secondary,#f2f7fc);border-radius:10px;padding:12px;margin-top:12px}
+.decision-outcome strong{font-size:.79rem;display:block;margin-bottom:5px}
+.decision-meta{display:flex;gap:7px 14px;flex-wrap:wrap;margin-top:14px;font-size:.75rem;color:var(--text-secondary,#64748b)}
+.decision-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:15px;padding-top:13px;border-top:1px solid var(--border,#e5e7eb)}
+@media(max-width:900px){.decision-feed{grid-template-columns:1fr}.decision-filters{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.decision-panel{padding:13px}.decision-form-grid,.decision-filters{grid-template-columns:1fr}.decision-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.decision-summary>div{padding:12px}.decision-summary strong{font-size:1.35rem}.decision-section-heading>.btn{width:100%}.decision-archived{padding:0!important}.decision-form-actions button{width:100%}}

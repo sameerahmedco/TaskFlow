@@ -541,6 +541,7 @@ CREATE TABLE IF NOT EXISTS mail_queue (
   recipient_email VARCHAR(190) NOT NULL,
   subject VARCHAR(255) NOT NULL,
   body TEXT NOT NULL,
+  body_is_encrypted TINYINT(1) NOT NULL DEFAULT 0,
   attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
   status ENUM('pending','processing','sent','failed') NOT NULL DEFAULT 'pending',
   next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -600,8 +601,10 @@ CREATE TABLE IF NOT EXISTS timesheet_review_events (
 CREATE TABLE IF NOT EXISTS user_workload_capacity (
   user_id INT UNSIGNED NOT NULL PRIMARY KEY,
   weekly_minutes SMALLINT UNSIGNED NOT NULL DEFAULT 2400,
+  workdays_mask TINYINT UNSIGNED NOT NULL DEFAULT 31,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT chk_week_capacity CHECK (weekly_minutes BETWEEN 0 AND 4800),
+  CONSTRAINT chk_workdays_mask CHECK (workdays_mask BETWEEN 1 AND 127),
   CONSTRAINT fk_workload_capacity_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -623,4 +626,217 @@ CREATE TABLE IF NOT EXISTS task_attachments (
   CONSTRAINT fk_attachment_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
   CONSTRAINT fk_attachment_uploader FOREIGN KEY (uploaded_by) REFERENCES users(id) ON DELETE SET NULL,
   CONSTRAINT chk_attachment_size CHECK (size_bytes BETWEEN 1 AND 8388608)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- TaskFlow 1.11.0: only hashed invite secrets are stored.
+CREATE TABLE IF NOT EXISTS user_invitations (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(190) NOT NULL,
+  name VARCHAR(100) NOT NULL,
+  roles_csv VARCHAR(80) NOT NULL,
+  team_id INT UNSIGNED NULL,
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  created_by INT UNSIGNED NULL,
+  expires_at DATETIME NOT NULL,
+  accepted_at DATETIME NULL,
+  revoked_at DATETIME NULL,
+  accepted_user_id INT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_invitation_token (token_hash),
+  INDEX idx_invitation_email (email, id),
+  INDEX idx_invitation_pending (accepted_at, revoked_at, expires_at, id),
+  CONSTRAINT fk_invitation_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE SET NULL,
+  CONSTRAINT fk_invitation_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_invitation_accepted FOREIGN KEY (accepted_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- TaskFlow 1.12.0: short-lived one-time password recovery, no plaintext bearer tokens.
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  expires_at DATETIME NOT NULL,
+  used_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_reset_token_hash (token_hash),
+  INDEX idx_reset_user_active (user_id, used_at, expires_at),
+  CONSTRAINT fk_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE IF NOT EXISTS password_reset_requests (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  ip_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  email_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  requested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_reset_request_ip (ip_hash, requested_at),
+  INDEX idx_reset_request_email (email_hash, requested_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- TaskFlow 1.13.0: time-off requests and capacity-aware workload.
+-- The corresponding upgrade migration is docs/migrations/1.13.0.sql.
+CREATE TABLE time_off_requests (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  team_id INT UNSIGNED NOT NULL,
+  user_id INT UNSIGNED NOT NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  day_portion ENUM('full','am','pm') NOT NULL DEFAULT 'full',
+  reason VARCHAR(300) NOT NULL DEFAULT '',
+  status ENUM('pending','approved','declined','cancelled') NOT NULL DEFAULT 'pending',
+  reviewer_note VARCHAR(300) NOT NULL DEFAULT '',
+  reviewed_by INT UNSIGNED DEFAULT NULL,
+  reviewed_at DATETIME DEFAULT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_time_off_team_recent (team_id,id),
+  INDEX idx_time_off_user_recent (user_id,id),
+  INDEX idx_time_off_approved_weeks (team_id,status,start_date,end_date,user_id),
+  CONSTRAINT fk_time_off_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_time_off_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_time_off_reviewer FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT chk_time_off_order CHECK (start_date <= end_date),
+  CONSTRAINT chk_time_off_portion CHECK (day_portion='full' OR start_date=end_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- TaskFlow 1.14.0: organization-maintained team holidays.
+CREATE TABLE team_holidays (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  team_id INT UNSIGNED NOT NULL,
+  holiday_date DATE NOT NULL,
+  title VARCHAR(100) NOT NULL,
+  created_by INT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_holiday_team_day (team_id,holiday_date),
+  CONSTRAINT fk_holiday_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_holiday_creator FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- TaskFlow 1.15.0: team-scoped, optional advisory annual leave allowances.
+CREATE TABLE leave_allowances (
+  team_id INT UNSIGNED NOT NULL,
+  user_id INT UNSIGNED NOT NULL,
+  leave_year SMALLINT UNSIGNED NOT NULL,
+  allowance_half_days SMALLINT UNSIGNED NOT NULL,
+  updated_by INT UNSIGNED NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (team_id,user_id,leave_year),
+  CONSTRAINT chk_allowance_year CHECK (leave_year BETWEEN 2000 AND 2100),
+  CONSTRAINT chk_allowance_units CHECK (allowance_half_days BETWEEN 0 AND 732),
+  CONSTRAINT fk_allowance_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_allowance_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_allowance_editor FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- TaskFlow 1.16.0: optional, team-scoped coverage acknowledgement for leave.
+-- Coverage does NOT reassign tasks or guarantee that work will be performed.
+CREATE TABLE leave_coverage (
+  request_id BIGINT UNSIGNED NOT NULL PRIMARY KEY,
+  team_id INT UNSIGNED NOT NULL,
+  backup_user_id INT UNSIGNED NOT NULL,
+  status ENUM('pending','accepted','declined') NOT NULL DEFAULT 'pending',
+  responded_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_coverage_inbox (team_id,backup_user_id,status,request_id),
+  CONSTRAINT fk_leave_coverage_request FOREIGN KEY (request_id) REFERENCES time_off_requests(id) ON DELETE CASCADE,
+  CONSTRAINT fk_leave_coverage_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_leave_coverage_user FOREIGN KEY (backup_user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- TaskFlow 1.17.0: team announcements, recipient reads and optional acknowledgements.
+CREATE TABLE team_announcements (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  team_id INT UNSIGNED NOT NULL,
+  author_id INT UNSIGNED NULL,
+  author_name VARCHAR(100) NOT NULL,
+  title VARCHAR(160) NOT NULL,
+  message TEXT NOT NULL,
+  requires_ack TINYINT(1) NOT NULL DEFAULT 0,
+  is_pinned TINYINT(1) NOT NULL DEFAULT 0,
+  expires_on DATE NULL,
+  archived_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_announcement_feed (team_id,archived_at,is_pinned,id),
+  KEY idx_announcement_expiry (team_id,expires_on),
+  CONSTRAINT fk_announcement_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_announcement_author FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT chk_announcement_ack CHECK (requires_ack IN (0,1)),
+  CONSTRAINT chk_announcement_pin CHECK (is_pinned IN (0,1))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE team_announcement_receipts (
+  announcement_id BIGINT UNSIGNED NOT NULL,
+  user_id INT UNSIGNED NOT NULL,
+  read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  acknowledged_at DATETIME NULL,
+  PRIMARY KEY (announcement_id,user_id),
+  KEY idx_announcement_receipt_user (user_id,acknowledged_at),
+  CONSTRAINT fk_announcement_receipt FOREIGN KEY (announcement_id) REFERENCES team_announcements(id) ON DELETE CASCADE,
+  CONSTRAINT fk_announcement_receipt_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- v1.18.0: team-scoped risk and issue tracking.
+CREATE TABLE project_risks (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  team_id INT UNSIGNED NOT NULL,
+  list_id INT UNSIGNED NOT NULL,
+  reported_by INT UNSIGNED NULL,
+  reported_name VARCHAR(100) NOT NULL,
+  owner_id INT UNSIGNED NULL,
+  kind ENUM('risk','issue') NOT NULL DEFAULT 'risk',
+  severity ENUM('low','medium','high','critical') NOT NULL DEFAULT 'medium',
+  status ENUM('open','mitigating','resolved','accepted') NOT NULL DEFAULT 'open',
+  title VARCHAR(160) NOT NULL,
+  description TEXT NOT NULL,
+  mitigation TEXT NOT NULL,
+  due_date DATE NULL,
+  version INT UNSIGNED NOT NULL DEFAULT 1,
+  archived_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_project_risks_team_feed (team_id,archived_at,id),
+  INDEX idx_project_risks_list (list_id,archived_at,status,severity),
+  INDEX idx_project_risks_owner (owner_id,status,due_date),
+  INDEX idx_risk_review_due (archived_at,status,due_date),
+  CONSTRAINT fk_risk_team FOREIGN KEY (team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_risk_scoped_list FOREIGN KEY (list_id,team_id) REFERENCES lists(id,team_id) ON DELETE CASCADE,
+  CONSTRAINT fk_risk_reporter FOREIGN KEY (reported_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_risk_owner FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT chk_risk_version CHECK (version >= 1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- TaskFlow v1.19.0. Apply ONCE to a backed-up v1.18.0 database.
+-- Keeps all existing projects, tasks, risks, personnel, and settings intact.
+CREATE TABLE project_decisions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  team_id INT UNSIGNED NOT NULL,
+  list_id INT UNSIGNED NOT NULL,
+  reporter_id INT UNSIGNED NULL,
+  reporter_name VARCHAR(100) NOT NULL,
+  owner_id INT UNSIGNED NULL,
+  title VARCHAR(160) NOT NULL,
+  context TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  status ENUM('proposed','approved','rejected','deferred') NOT NULL DEFAULT 'proposed',
+  review_date DATE NULL,
+  version INT UNSIGNED NOT NULL DEFAULT 1,
+  archived_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_decision_team_feed (team_id, archived_at, id),
+  INDEX idx_decision_project (list_id, archived_at, status),
+  INDEX idx_decision_review (team_id, status, review_date),
+  CONSTRAINT fk_decision_team FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_decision_scoped_list FOREIGN KEY(list_id,team_id) REFERENCES lists(id,team_id) ON DELETE CASCADE,
+  CONSTRAINT fk_decision_reporter FOREIGN KEY(reporter_id) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_decision_owner FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT chk_decision_version CHECK (version >= 1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- At most one notification per risk, recipient, target date, reminder kind.
+CREATE TABLE risk_reminder_deliveries (
+  risk_id BIGINT UNSIGNED NOT NULL,
+  user_id INT UNSIGNED NOT NULL,
+  due_date DATE NOT NULL,
+  kind ENUM('due_today','overdue') NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (risk_id,user_id,due_date,kind),
+  INDEX idx_risk_reminder_retention (created_at),
+  CONSTRAINT fk_risk_reminder_risk FOREIGN KEY (risk_id) REFERENCES project_risks(id) ON DELETE CASCADE,
+  CONSTRAINT fk_risk_reminder_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

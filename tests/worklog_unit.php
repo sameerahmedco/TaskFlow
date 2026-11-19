@@ -22,6 +22,8 @@ $assert(taskflow_worklog_range('2026-11-01','2026-11-15'), '15 day report accept
 $assert(taskflow_worklog_range('2026-10-16','2026-11-15'), '31 day report accepted');
 $assert(!taskflow_worklog_range('2026-10-15','2026-11-15'), '32 days rejected');
 $assert(!taskflow_worklog_range('2026-11-16','2026-11-15'), 'reversed range rejected');
-$assert(!taskflow_worklog_range('2026-11-01','2026-11-16'), 'future end date rejected');
+$todayUtc = gmdate('Y-m-d');
+$tomorrowUtc = gmdate('Y-m-d', strtotime('+1 day UTC'));
+$assert(!taskflow_worklog_range($todayUtc, $tomorrowUtc), 'future end date rejected');
 $assert(!taskflow_worklog_range('2026-02-30','2026-03-01'), 'invalid report date rejected');
 echo "All $tests worklog validation checks passed.\n";

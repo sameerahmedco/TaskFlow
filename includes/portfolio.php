@@ -3,7 +3,8 @@
 declare(strict_types=1);
 require_once __DIR__ . '/milestones.php';
 
-function taskflow_portfolio_health(int $total, int $done, int $overdue, int $dueSoon, int $milestonesLate, int $milestonesRisk): string {
+function taskflow_portfolio_health(int $total, int $done, int $overdue, int $dueSoon, int $milestonesLate, int $milestonesRisk, int $highRisks = 0): string {
+    if ($highRisks > 0) return 'at_risk';
     if ($total === 0 && $milestonesLate === 0 && $milestonesRisk === 0) return 'empty';
     if ($total > 0 && $done >= $total && $milestonesLate === 0) return 'complete';
     if ($overdue > 0 || $milestonesLate > 0) return 'at_risk';
@@ -59,6 +60,15 @@ function taskflow_portfolio_page(PDO $pdo, int $teamId, int $afterId = 0, int $l
         if ($health === 'overdue') $totals[$listId]['late']++;
         if ($health === 'at_risk') $totals[$listId]['risk']++;
     }
+    // Aggregate only the visible list IDs; avoid N+1 risk counts per card.
+    $risks = $pdo->prepare("SELECT list_id,
+      COALESCE(SUM(status IN ('open','mitigating')),0) AS open_risks,
+      COALESCE(SUM(status IN ('open','mitigating') AND severity IN ('high','critical')),0) AS critical_risks
+      FROM project_risks WHERE team_id=? AND archived_at IS NULL AND list_id IN ($slots)
+      GROUP BY list_id");
+    $risks->execute([$teamId,...$ids]);
+    $riskTotals=[];
+    foreach ($risks->fetchAll(PDO::FETCH_ASSOC) as $row) $riskTotals[(int)$row['list_id']]=$row;
     foreach ($rows as &$r) {
         $task = $taskTotals[(int)$r['id']] ?? [];
         foreach (['total_tasks','done_tasks','overdue_tasks','due_soon_tasks','unassigned_tasks','remaining_estimate_minutes'] as $key) {
@@ -71,8 +81,10 @@ function taskflow_portfolio_page(PDO $pdo, int $teamId, int $afterId = 0, int $l
         $r['milestones_late'] = $ms['late'];
         $r['milestones_at_risk'] = $ms['risk'];
         $r['progress_percent'] = taskflow_milestone_percent($r['total_tasks'], $r['done_tasks']);
+        $r['open_risks']=(int)($riskTotals[$r['id']]['open_risks'] ?? 0);
+        $r['critical_risks']=(int)($riskTotals[$r['id']]['critical_risks'] ?? 0);
         $r['health'] = taskflow_portfolio_health($r['total_tasks'], $r['done_tasks'], $r['overdue_tasks'],
-            $r['due_soon_tasks'], $ms['late'], $ms['risk']);
+            $r['due_soon_tasks'], $ms['late'], $ms['risk'], $r['critical_risks']);
     }
     unset($r);
     return ['projects'=>$rows, 'next_after_id'=>$more ? (int)end($rows)['id'] : null];

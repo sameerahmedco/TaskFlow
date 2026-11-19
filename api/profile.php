@@ -54,8 +54,17 @@ if ($method === 'PUT' || $method === 'PATCH') {
             if ($dupStmt->fetch()) {
                 json_error('That email is already in use by another account.', 409);
             }
-            $pdo->prepare('UPDATE users SET email = ?, auth_version=auth_version+1 WHERE id = ?')->execute([$newEmail, $me['id']]);
-            $pdo->prepare('DELETE FROM remember_tokens WHERE user_id=?')->execute([$me['id']]);
+            $pdo->beginTransaction();
+            try {
+                $pdo->prepare('UPDATE users SET email = ?, auth_version=auth_version+1 WHERE id = ?')->execute([$newEmail, $me['id']]);
+                $pdo->prepare('DELETE FROM remember_tokens WHERE user_id=?')->execute([$me['id']]);
+                $pdo->prepare('UPDATE password_reset_tokens SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL')->execute([$me['id']]);
+                $pdo->commit();
+            } catch (Throwable $e) {
+                $pdo->rollBack();
+                error_log('Email change failed: ' . get_class($e));
+                json_error('Could not update email.', 500);
+            }
             clear_remember_cookie();
             $_SESSION['auth_version'] = (int) $me['auth_version'] + 1;
             unset($_SESSION['csrf_token']);

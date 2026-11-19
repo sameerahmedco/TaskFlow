@@ -24,4 +24,9 @@ Static review of the provided PHP 8/MySQL code, JavaScript templates, schema and
 
 Static tests and PHP/JS syntax checks are provided under `tests/` and GitHub Actions. A real database acceptance test is required, especially for schema import, upgraded schemas, account lifecycle, SMTP queue retries and locking under concurrent requests.
 
-Open priorities before a high-sensitivity launch: built-in MFA/SSO, a professional security review, password recovery and verified invitations, multi-node session centralization, full pagination, independent adversarial role/tenant tests, integration tests on MySQL 8, and load testing. Track these as GitHub issues with clear owners and milestones.
+Open priorities before a high-sensitivity launch: built-in MFA/SSO, a professional security review, secure password-recovery flow and organization-wide enforced MFA, multi-node session centralization, full pagination, independent adversarial role/tenant tests, integration tests on MySQL 8, and load testing. Track these as GitHub issues with clear owners and milestones.
+
+
+## TaskFlow 1.11.0 incremental review
+
+A separate administrator-issued invitation path is now included, with 256-bit bearer secrets shown once, SHA-256 token hashes, a 72-hour expiration, revocation, JSON-only anonymous redemption and transactional database row locking to prevent replay. The recipient chooses their own password and is **not** automatically signed in. The public invite page has a strict no-referrer/no-store posture and removes the token fragment immediately. These protections have passed static and mocked browser tests; they have **not** undergone an independent security assessment or live MySQL endpoint penetration testing. The older direct administrator password-based account creation endpoint remains available for backwards compatibility, so administrators should prefer invitations and require MFA for privileged roles.

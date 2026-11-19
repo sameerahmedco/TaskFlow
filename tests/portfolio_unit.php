@@ -25,5 +25,8 @@ try {
     $ok=false;try{taskflow_portfolio_page($pdo,1,0,101);}catch(InvalidArgumentException){$ok=true;}
     portfolio_assert($ok,'overlarge page rejected before SQL');
 } catch(PDOException) { echo "SKIP SQLite PDO optional validation (MySQL CI tests aggregates)\n"; }
+
+portfolio_assert(taskflow_portfolio_health(0,0,0,0,0,0,1)==='at_risk', 'high open risk flags otherwise empty project');
+portfolio_assert(taskflow_portfolio_health(10,10,0,0,0,0,2)==='at_risk', 'high open risks override completed tasks');
 if($failures)exit(1);
 echo "All $checks portfolio unit checks passed.\n";

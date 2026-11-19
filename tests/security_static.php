@@ -42,6 +42,20 @@ $check(str_contains($src('api/notifications.php'), 'browser_new_tasks') && str_c
 $check(str_contains($src('api/duplicate.php'), 'beginTransaction') && str_contains($src('api/duplicate.php'), 'tg.team_id=?') && !str_contains($src('api/duplicate.php'), 'task_assignees ('), 'task duplication transactional and team-bound, no assignee cloning');
 $check(str_contains($src('api/task.php'), 'beginTransaction') && str_contains($src('api/tasks.php'), 'beginTransaction'), 'task creation and update transactional');
 $check(str_contains($schema, 'idx_inbox_user_read_id') && str_contains($schema, 'idx_assignee_user_task') && str_contains($schema, 'is_read TINYINT'), 'inbox, personal work and due-date indexes in fresh schema');
+$check(str_contains($schema,'CREATE TABLE IF NOT EXISTS password_reset_tokens') && str_contains($schema,'uq_reset_token_hash') && str_contains($src('docs/migrations/1.12.0.sql'),'CREATE TABLE password_reset_tokens'), '1.12.0 fresh and upgrade schemas retain hashed-only recovery tokens');
+$check(str_contains($src('api/password_recovery.php'), "['tls','ssl']") && str_contains($src('api/invitations.php'), "['tls','ssl']"), 'credential emails refuse plaintext SMTP transport');
+$check(str_contains($src('api/password_recovery.php'),'auth_version=auth_version+1') && str_contains($src('api/password_recovery.php'),'DELETE FROM remember_tokens') && str_contains($src('api/password_recovery.php'),'FOR UPDATE'), 'recovery revokes sessions with serialized one-use token consumption');
+$check(str_contains($src('api/password_recovery.php'),'taskflow_recovery_limited') && str_contains($src('api/password_recovery.php'),'hash_hmac') && str_contains($src('bin/maintenance.php'),'password_reset_requests'), 'recovery attempts are bounded and hashed with retention');
+$check(str_contains($src('api/password_recovery.php'),'credentials') === false && str_contains($src('recover/recover.js'),"credentials:'omit'"), 'recovery is a public token capability without authentication cookies');
+$check(str_contains($schema,'body_is_encrypted TINYINT') && str_contains($src('bin/process-mail.php'), 'secret_decrypt($body)') && str_contains($src('includes/mailer.php'), 'taskflow_queue_secure_mail'), 'secret-bearing queued emails are encrypted and worker decrypts safely');
+$check(str_contains($src('api/invitations.php'),'smtp_send(') && str_contains($src('api/invitations.php'),"'email_sent'") && str_contains($src('api/invitations.php'),"'email_failed'"), 'email invitations show explicit SMTP delivery result and manual fallback');
+$check(str_contains($src('api/change_password.php'),'password_reset_tokens') && str_contains($src('api/profile.php'),'password_reset_tokens') && str_contains($src('api/users.php'),'password_reset_tokens'), 'sensitive account changes revoke pending recovery links');
+$check(str_contains($src('recover/index.php'),'noindex,nofollow,noarchive') && str_contains($src('recover/index.php'),'no-referrer') && str_contains($src('recover/recover.js'),'replaceState'), 'recovery page prevents link propagation to referrers and browser history');
+$check(str_contains($schema,'CREATE TABLE time_off_requests') && str_contains($src('docs/migrations/1.13.0.sql'),'chk_time_off_order'), 'fresh and upgrade leave schemas included');
+$check(str_contains($src('api/time_off.php'),'require_team_access') && str_contains($src('api/time_off.php'),'require_csrf()') && str_contains($src('api/time_off.php'),'FOR UPDATE'), 'time off is team scoped, CSRF protected and serialized');
+$check(str_contains($src('api/time_off.php'),'notification_log') && str_contains($src('api/time_off.php'),'You cannot approve or decline your own leave.') && str_contains($src('api/time_off.php'),'u.team_id=r.team_id'), 'review prevents self approval and old-team visibility');
+$check(str_contains($src('api/workload.php'),'taskflow_schedule_availability') && str_contains($src('api/workload.php'),'effective_capacity_minutes'), 'approved leave reduces workload capacity');
+$check(str_contains($src('assets/js/app.js'),'renderTimeOff') && str_contains($src('index.php'),'data-view="time-off"'), 'time off is available in the workspace');
 $check(!str_contains($src('README.md'), 'TaskFlow NEXT') && !str_contains($src('index.php'), 'TaskFlow NEXT'), 'software product name remains TaskFlow');
 $check(str_contains($schema,'CREATE TABLE IF NOT EXISTS task_dependencies') && str_contains($schema,'chk_dependencies_not_self'), 'fresh schema stores and constrains task dependencies');
 $check(str_contains($src('api/dependencies.php'), 'require_csrf()') && str_contains($src('api/dependencies.php'), 'require_team_access') && str_contains($src('api/dependencies.php'), 'GET_LOCK(') && str_contains($src('api/dependencies.php'), 'taskflow_would_create_cycle'), 'dependencies require CSRF/team scope and serialize cycle checks');
@@ -52,10 +66,44 @@ $check(str_contains($schema,'CREATE TABLE IF NOT EXISTS task_reminder_deliveries
 $check(str_contains($src('bin/due-reminders.php'), "PHP_SAPI !== 'cli'") && str_contains($src('bin/due-reminders.php'), 'INSERT IGNORE INTO task_reminder_deliveries') && str_contains($src('bin/due-reminders.php'), 'NOT EXISTS'), 'daily reminder worker CLI-only and deduplicated');
 $check(str_contains($src('bin/due-reminders.php'), 'email_new_tasks') && str_contains($src('bin/due-reminders.php'), 'notify_due_reminder') && str_contains($src('bin/due-reminders.php'), 'TASKFLOW_MAIL_QUEUE'), 'due email honors account/org preferences and requires queue worker');
 $check(str_contains($src('assets/js/app.js'), 'tm-blocker-search') && str_contains($src('assets/js/app.js'), "api('bulk.php'") && str_contains($src('assets/js/app.js'), 'tm-blocker-list'), 'dependency and bulk controls present in UI');
-$check(trim($src('VERSION')) === '1.10.0' && !str_contains($src('README.md'), 'TaskFlow NEXT'), 'TaskFlow version and product name are consistent');
+$check(str_contains($schema, 'CREATE TABLE IF NOT EXISTS user_invitations') && str_contains($schema, 'UNIQUE KEY uq_invitation_token'), 'fresh install includes one-time hashed invitation store');
+$check(str_contains($src('api/invitations.php'), 'require_administrator()') && str_contains($src('api/invitations.php'), 'require_csrf()'), 'invitation creation and revocation are administrator gated');
+$check(str_contains($src('api/invite_accept.php'), 'FOR UPDATE') && str_contains($src('api/invite_accept.php'), 'beginTransaction'), 'redemption is serialized and transactional');
+$check(str_contains($src('api/invite_accept.php'), 'application/json') && str_contains($src('api/invite_accept.php'), 'taskflow_invite_hash'), 'anonymous redemption requires JSON and possession of a high-entropy token');
+$check(str_contains($src('invite/invite.js'), 'replaceState') && str_contains($src('includes/invitations.php'), "'/invite/#token='"), 'secret is removed from address bar and never sent in the request path');
+$check(!str_contains($src('api/invitations.php'), 'password_hash('), 'administrators do not choose invitation passwords');
+$check(is_file($root.'/api/announcements.php') && str_contains($src('api/announcements.php'), 'require_team_access($teamId)')
+    && str_contains($src('api/announcements.php'),'require_csrf()'), 'announcements require team-scoped permissions and CSRF');
+$check(str_contains($src('api/announcements.php'), 'FOR UPDATE')
+    && str_contains($src('api/announcements.php'), 'a.id<?'), 'announcement mutation locking and keyset pagination');
+$check(str_contains($src('schema.sql'), 'team_announcement_receipts')
+    && str_contains($src('docs/migrations/1.17.0.sql'), 'team_announcements'), 'fresh and upgrade announcement schema present');
+
+$check(str_contains($schema,'CREATE TABLE project_risks') && str_contains($src('docs/migrations/1.18.0.sql'), 'fk_risk_scoped_list'), 'risk register fresh and upgrade schema have composite list-team scope');
+$check(str_contains($src('api/project_risks.php'),'require_team_access($teamId)') && str_contains($src('api/project_risks.php'),'require_csrf()') && str_contains($src('api/project_risks.php'),'FOR UPDATE'), 'risk mutation enforces team permissions, CSRF and version locking');
+$check(str_contains($src('api/project_risks_export.php'),"['administrator','manager']") && str_contains($src('api/project_risks_export.php'),'taskflow_csv_safe'), 'risk CSV is manager-only with formula neutralization');
+$check(str_contains($src('assets/js/app.js'),'renderProjectRisks') && str_contains($src('index.php'),'data-view="project-risks"'), 'risk register accessible from navigation');
+$check(str_contains($src('includes/portfolio.php'),'critical_risks') && str_contains($src('api/portfolio_export.php'),"'Open risks'"), 'portfolio includes bounded risk counts and export');
+$check(str_contains($schema,'CREATE TABLE project_decisions') && str_contains($src('docs/migrations/1.19.0.sql'),'fk_decision_scoped_list'),
+    'decision log fresh schema and migration enforce project team scope');
+$check(str_contains($src('api/project_decisions.php'),'require_team_access($teamId)') && str_contains($src('api/project_decisions.php'),'require_csrf()')
+    && str_contains($src('api/project_decisions.php'),'FOR UPDATE'), 'decisions require team access, CSRF, and row locking');
+$check(str_contains($src('api/project_decisions_export.php'),"['administrator','manager']")
+    && str_contains($src('api/project_decisions_export.php'),'taskflow_csv_safe'), 'decision CSV manager-only and formula-safe');
+$check(str_contains($src('bin/risk-reminders.php'),'PHP_SAPI') && str_contains($src('bin/risk-reminders.php'),'INSERT IGNORE INTO risk_reminder_deliveries')
+    && str_contains($src('bin/risk-reminders.php'),'beginTransaction'), 'risk reminders CLI-only and deduplicated transactionally');
+$check(str_contains($src('index.php'),'data-view="project-decisions"') && str_contains($src('assets/js/app.js'),'renderProjectDecisions'), 'decision log in navigation and app');
+$check(is_file($root.'/assets/css/theme-accessibility.css') && str_contains($src('assets/css/theme-accessibility.css'),'--surface-secondary')
+    && str_contains($src('assets/css/theme-accessibility.css'),'--text-secondary'),
+    '1.21 semantic surface and text tokens protect dark/light contrast');
+$check(str_contains($src('index.php'),'appearance-preference') && str_contains($src('index.php'),'theme-boot.js')
+    && str_contains($src('assets/js/app.js'),'systemThemeQuery'), 'light/dark/system selector and early theme boot are wired');
+$check(is_file($root.'/tests/theme_contrast_ui_smoke.py') && str_contains($src('tests/theme_contrast_ui_smoke.py'),'WCAG'),
+    'browser-based 1.21 dual-theme contrast regressions included');
+$check(trim($src('VERSION')) === '1.22.0' && !str_contains($src('README.md'), 'TaskFlow NEXT'), 'TaskFlow version and product name are consistent');
 $check(is_file($root . '/assets/css/design-system.css') && str_contains($src('index.php'),'id="theme-switch"'), 'TaskFlow includes its own lightweight appearance control');
 $check(str_contains(substr($src('assets/js/app.js'), strpos($src('assets/js/app.js'), 'function renderAddTaskForm()'), 1500), 'const assigneeOptions = state.members.filter'), 'task creation uses an in-scope member list');
-$check(str_contains($src('install/index.php'), 'SETUP · VERSION 1.10.0') && is_file($root . '/install/assets/installer-v1.css'), 'organization setup uses current branded wizard');
+$check(str_contains($src('install/index.php'), 'SETUP · VERSION 1.22.0') && is_file($root . '/install/assets/installer-v1.css'), 'organization setup uses current branded wizard');
 $check(str_contains($src('api/calendar.php'), 'require_team_access') && str_contains($src('api/calendar.php'), 'LIMIT 401'), 'calendar is team-scoped and bounded');
 $check(str_contains($src('api/templates.php'), 'require_team_access') && str_contains($src('api/templates.php'), 'require_csrf()') && str_contains($src('api/templates.php'), 'beginTransaction'), 'template management uses team permissions, CSRF, transactions');
 $check(str_contains($src('api/tasks.php'), 'Template not found in this team') && str_contains($src('api/tasks.php'), 'templateItems'), 'server-side template application verifies team boundary');
@@ -142,5 +190,29 @@ $check(str_contains($src('includes/attachments.php'),'DOCUMENT_ROOT') && str_con
 $check(str_contains($src('api/activity.php'),'taskflow_activity_query') && str_contains($src('api/activity_export.php'),'taskflow_csv_safe'), 'audit feed is paginated and CSV export neutralizes formulas');
 $check(is_file($root.'/bin/attachments-gc.php') && str_contains($src('bin/attachments-gc.php'),"'--delete'"), 'CLI orphan cleanup defaults to a dry run');
 $check(is_file($root.'/tests/release_110_unit.php'), '1.10 helper regression tests bundled');
+$check(str_contains($schema,'CREATE TABLE team_holidays') && str_contains($schema,'chk_time_off_portion') && str_contains($schema,'chk_workdays_mask'), '1.14 fresh install has holiday, partial leave and custom-workday constraints');
+$check(is_file($root.'/docs/migrations/1.14.0.sql') && str_contains($src('docs/migrations/1.14.0.sql'),'uq_holiday_team_day'), '1.14 migration included with unique team holiday date');
+$check(str_contains($src('api/holidays.php'),'require_team_access') && str_contains($src('api/holidays.php'),'require_csrf()') && str_contains($src('api/holidays.php'),'Only managers can change team holidays.'), 'holiday API checks role, team access and CSRF');
+$check(str_contains($src('api/time_off.php'),'taskflow_leave_portion') && str_contains($src('api/time_off.php'),"day_portion='full'") && str_contains($src('api/time_off.php'),'FOR UPDATE'), 'half-day leave overlap logic serialized on member row');
+$check(str_contains($src('api/workload.php'),'taskflow_schedule_availability') && str_contains($src('api/workload.php'),'SELECT holiday_date FROM team_holidays'), 'workload availability considers scheduled workdays, leave and holidays');
+$check(str_contains($src('api/workload.php'),'set_schedule') && str_contains($src('api/workload.php'),'You may update only your own capacity.'), 'custom workday updates retain team/owner security restrictions');
+$check(str_contains($src('assets/js/app.js'),'renderHolidays') && str_contains($src('index.php'),'data-view="holidays"'), 'team holiday calendar is available from navigation');
+$check(is_file($root.'/tests/scheduling_unit.php') && is_file($root.'/tests/scheduling_ui_smoke.py'), 'scheduling regression tests bundled');
+$check(str_contains($schema,'CREATE TABLE leave_allowances') && str_contains($src('docs/migrations/1.15.0.sql'),'PRIMARY KEY (team_id,user_id,leave_year)'), 'fresh-install and upgrade schema include scoped annual allowance uniqueness');
+$check(str_contains($src('api/leave_balances.php'),'require_team_access') && str_contains($src('api/leave_balances.php'),'require_csrf()') && str_contains($src('api/leave_balances.php'),'Only managers can set leave allowances.'), 'leave allowance writes are team-authorized, manager-only and CSRF protected');
+$check(str_contains($src('api/leave_balances.php'),'scope === \'team\'') && str_contains($src('api/leave_balances.php'),'LIMIT 10001'), 'team balances are role-gated and leave aggregation is bounded');
+$check(str_contains($src('api/leave_calendar.php'),"r.status='approved'") && !str_contains($src('api/leave_calendar.php'),'reviewer_note') && !str_contains($src('api/leave_calendar.php'),'r.reason'), 'team calendar exposes only approved absences, never private notes');
+$check(str_contains($src('assets/js/app.js'),'renderAvailability') && str_contains($src('assets/js/app.js'),'renderLeaveBalances') && str_contains($src('index.php'),'data-view="availability"'), 'calendar and balances are available in the navigation');
+$check(is_file($root.'/tests/leave_balances_unit.php') && is_file($root.'/docs/migrations/1.15.0.sql'), 'annual balance tests and migration bundled');
+$check(str_contains($schema,'CREATE TABLE leave_coverage') && str_contains($src('docs/migrations/1.16.0.sql'),'fk_leave_coverage_request'), '1.16 coverage available on fresh install and upgrade');
+$check(str_contains($src('api/time_off.php'),'taskflow_coverage_can_respond') && str_contains($src('api/time_off.php'),'FOR UPDATE') && str_contains($src('api/time_off.php'),'require_csrf()'), 'coverage responses enforce team ownership and row locks');
+$check(str_contains($src('api/time_off.php'),"if (\$scope === 'coverage')") && str_contains($src('api/time_off.php'),"\$row['reason']=''"), 'backup view never returns private leave reasons');
+$check(str_contains($src('api/availability_export.php'),'require_team_access') && str_contains($src('api/availability_export.php'),"r.status='approved'") && !str_contains($src('api/availability_export.php'),'r.reason'), 'calendar export scoped and approved-only, without private reasons');
+$check(str_contains($src('api/leave_balance_export.php'),'Only managers may export') && str_contains($src('api/leave_balance_export.php'),'taskflow_csv_safe'), 'manager CSV report checks role and sanitizes formulas');
+$check(str_contains($src('assets/js/app.js'),'data-coverage-accept') && str_contains($src('assets/js/app.js'),'availability_export.php') && str_contains($src('assets/js/app.js'),'leave_balance_export.php'), 'coverage and exports accessible in workspace');
+$check(is_file($root.'/tests/coverage_unit.php') && is_file($root.'/tests/availability_export_unit.php'), 'coverage and export unit tests included');
+$check(str_contains($src('assets/js/theme-boot.js'),"pref='light'") && str_contains($src('assets/js/app.js'),"'ocean','forest','lavender','sunset','midnight'"), 'new theme palette preferences keep light default');
+$check(str_contains($src('index.php'),'assets/css/theme-palettes.css') && str_contains($src('index.php'),'data-theme-choice="midnight"'), 'theme palette styles and signed-out picker shipped');
+$check(is_file($root.'/tests/theme_palettes_ui_smoke.py') && is_file($root.'/tests/readme_screenshots_unit.py'), 'new palette accessibility and README light screenshots regression scripts included');
 if ($failures) { fwrite(STDERR, count($failures) . " security regression check(s) failed.\n"); exit(1); }
 echo "All static security checks passed. Note: these are not exploit or database integration tests.\n";

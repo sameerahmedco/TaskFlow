@@ -2,7 +2,10 @@
 /** Scoped weekly workload planning: open tasks due this week, vs weekly availability. */
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/workload.php';
+require_once __DIR__ . '/../includes/time_off.php';
+require_once __DIR__ . '/../includes/scheduling.php';
 start_secure_session();
+header('Cache-Control: private, no-store');
 $me = current_user_record();
 $method = effective_method();
 if ($method !== 'GET') require_csrf();
@@ -16,20 +19,29 @@ $isManager = (bool) array_intersect($me['roles'], ['administrator', 'manager']);
 
 if ($method === 'POST') {
     $body = $request;
-    if (($body['action'] ?? '') !== 'set_capacity') json_error('Unsupported action.', 400);
+    if (!in_array(($body['action'] ?? ''), ['set_capacity','set_schedule'], true)) json_error('Unsupported action.', 400);
     $target = filter_var($body['user_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
     if (!$target) json_error('Select a member.', 400);
     if (!$isManager && (int) $me['id'] !== (int) $target) json_error('You may update only your own capacity.', 403);
-    try { $minutes = taskflow_capacity_minutes($body['weekly_minutes'] ?? null); }
-    catch (InvalidArgumentException $error) { json_error($error->getMessage(), 400); }
+    try {
+        if ($body['action'] === 'set_capacity') $minutes = taskflow_capacity_minutes($body['weekly_minutes'] ?? null);
+        else $mask = taskflow_schedule_mask($body['workdays_mask'] ?? null);
+    } catch (InvalidArgumentException $error) { json_error($error->getMessage(), 400); }
     $check = $pdo->prepare('SELECT id FROM users WHERE id=? AND team_id=? AND is_active=1');
     $check->execute([(int) $target, (int) $teamId]);
     if (!$check->fetchColumn()) json_error('Member not found in this team.', 404);
-    $stmt = $pdo->prepare('INSERT INTO user_workload_capacity (user_id,weekly_minutes) VALUES (?,?)
-                           ON DUPLICATE KEY UPDATE weekly_minutes=VALUES(weekly_minutes)');
-    $stmt->execute([(int) $target, $minutes]);
-    log_activity((int)$teamId, null, (int)$me['id'], 'capacity_updated', 'Weekly capacity updated for member #' . (int)$target);
-    json_response(['ok' => true, 'user_id' => (int)$target, 'weekly_minutes' => $minutes]);
+    if ($body['action'] === 'set_capacity') {
+        $stmt = $pdo->prepare('INSERT INTO user_workload_capacity (user_id,weekly_minutes) VALUES (?,?)
+                               ON DUPLICATE KEY UPDATE weekly_minutes=VALUES(weekly_minutes)');
+        $stmt->execute([(int)$target, $minutes]);
+        log_activity((int)$teamId, null, (int)$me['id'], 'capacity_updated', 'Weekly capacity updated for member #' . (int)$target);
+        json_response(['ok'=>true,'user_id'=>(int)$target,'weekly_minutes'=>$minutes]);
+    }
+    $stmt = $pdo->prepare('INSERT INTO user_workload_capacity (user_id,weekly_minutes,workdays_mask) VALUES (?,2400,?)
+                           ON DUPLICATE KEY UPDATE workdays_mask=VALUES(workdays_mask)');
+    $stmt->execute([(int)$target, $mask]);
+    log_activity((int)$teamId, null, (int)$me['id'], 'schedule_updated', 'Workdays updated for member #' . (int)$target);
+    json_response(['ok'=>true,'user_id'=>(int)$target,'workdays_mask'=>$mask]);
 }
 if ($method !== 'GET') json_error('Method not allowed.', 405);
 $scope = $_GET['scope'] ?? 'mine';
@@ -45,7 +57,7 @@ $offset = filter_var($_GET['offset'] ?? 0, FILTER_VALIDATE_INT,
 if ($offset === false) json_error('Invalid page.', 400);
 if ($scope === 'mine' && $offset !== 0) json_error('Personal workload does not use pagination.', 400);
 if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
-$sql = 'SELECT u.id AS user_id,u.name,COALESCE(c.weekly_minutes,2400) AS capacity_minutes
+$sql = 'SELECT u.id AS user_id,u.name,COALESCE(c.weekly_minutes,2400) AS capacity_minutes,COALESCE(c.workdays_mask,31) AS workdays_mask
         FROM users u LEFT JOIN user_workload_capacity c ON c.user_id=u.id
         WHERE u.team_id=? AND u.is_active=1';
 $params = [(int)$teamId];
@@ -75,19 +87,38 @@ $logged = $pdo->prepare("SELECT e.user_id,COALESCE(SUM(e.minutes),0) AS logged_m
 $logged->execute([...$ids, (int)$teamId, $week['from'], $week['to']]);
 $loggedById = [];
 foreach ($logged->fetchAll() as $p) $loggedById[(int)$p['user_id']] = (int)$p['logged_minutes'];
+// Only approved absences count. Count distinct weekdays per member in the selected UTC week.
+// An absence does not delete or rewrite the employee's baseline weekly capacity.
+$leaveStmt = $pdo->prepare("SELECT r.user_id,r.start_date,r.end_date,r.day_portion
+    FROM time_off_requests r JOIN users u ON u.id=r.user_id
+    WHERE r.user_id IN ($marks) AND r.team_id=? AND u.team_id=r.team_id AND u.is_active=1
+      AND r.status='approved' AND r.start_date<=? AND r.end_date>=?");
+$leaveStmt->execute([...$ids, (int)$teamId, $week['to'], $week['from']]);
+$leaveById = [];
+foreach ($leaveStmt->fetchAll() as $period) $leaveById[(int)$period['user_id']][]=$period;
+// One indexed, team-scoped query retrieves holidays for the selected week.
+$holidayStmt = $pdo->prepare('SELECT holiday_date FROM team_holidays WHERE team_id=? AND holiday_date BETWEEN ? AND ?');
+$holidayStmt->execute([(int)$teamId, $week['from'], $week['to']]);
+$holidayDates = array_column($holidayStmt->fetchAll(), 'holiday_date');
 $rows = [];
 foreach ($users as $u) {
     $uid = (int)$u['user_id'];
     $data = $byId[$uid] ?? null;
     $cap = (int)$u['capacity_minutes'];
+    $availability = taskflow_schedule_availability($cap, (int)$u['workdays_mask'], $leaveById[$uid] ?? [], $holidayDates, $week['from'], $week['to']);
+    $leaveDays = $availability['approved_leave_days'];
+    $effectiveCap = $availability['effective_capacity_minutes'];
     $plannedMinutes = (int)($data['planned_minutes'] ?? 0);
     $rows[] = [
         'user_id' => $uid, 'name' => $u['name'], 'capacity_minutes' => $cap,
+        'effective_capacity_minutes' => $effectiveCap, 'approved_leave_weekdays' => $leaveDays,
+        'holiday_days' => $availability['holiday_days'], 'scheduled_days' => $availability['scheduled_days'],
+        'workdays_mask' => $availability['workdays_mask'],
         'due_tasks' => (int)($data['due_tasks'] ?? 0),
         'unestimated_tasks' => (int)($data['due_tasks'] ?? 0) - (int)($data['estimated_tasks'] ?? 0),
         'planned_minutes' => $plannedMinutes,
         'logged_minutes' => $loggedById[$uid] ?? 0,
-        'load_percent' => taskflow_workload_percent($plannedMinutes, $cap),
+        'load_percent' => taskflow_workload_percent($plannedMinutes, $effectiveCap),
         'can_edit_capacity' => $isManager || $uid === (int)$me['id'],
     ];
 }

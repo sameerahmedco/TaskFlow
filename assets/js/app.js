@@ -344,8 +344,12 @@
     milestoneSelectedId = null;
     milestoneListFilter = '';
     projectUpdateListFilter = '';
+    riskProjectFilter = ''; riskStatusFilter = ''; riskSeverityFilter = ''; riskArchived = false; riskCursor = null;
+    decisionProjectFilter = ''; decisionStatusFilter = ''; decisionArchived = false; decisionCursor = null;
+    announcementCursor = null;
+    announcementShowArchive = false;
     await loadTeamContext();
-    setView(['org-dashboard','teams','users','org-activity','search','my-work','inbox','board','calendar','templates','time-reports','timesheet','workload','milestones','portfolio','project-updates','timeline'].includes(state.currentView) ? state.currentView : 'monthly');
+    setView(['org-dashboard','teams','users','org-activity','search','my-work','inbox','board','calendar','templates','time-reports','timesheet','workload','time-off','availability','leave-balances','holidays','milestones','portfolio','project-updates','project-risks','project-decisions','announcements','timeline'].includes(state.currentView) ? state.currentView : 'monthly');
   }
 
   async function loadTeamContext() {
@@ -367,18 +371,19 @@
   // View switching
   // ---------------------------------------------------------------
   function setView(view) {
+    document.getElementById('view-container').onclick = null;
     state.currentView = view;
     document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     const titles = {
-      'my-work': 'My Work', board: 'Board', inbox: 'Inbox', calendar:'Calendar', timeline:'Project timeline', 'time-reports':'Time reports', timesheet:'Weekly timesheet', workload:'Workload planner', milestones:'Milestones', portfolio:'Project portfolio', 'project-updates':'Project updates', templates:'Templates', monthly: 'Monthly', tasks: 'Tasks', search: 'Search Tasks', 'team-dashboard': 'Team Dashboard', priorities: 'Weekly Goals',
+      'my-work': 'My Work', board: 'Board', inbox: 'Inbox', calendar:'Calendar', timeline:'Project timeline', 'time-reports':'Time reports', timesheet:'Weekly timesheet', workload:'Workload planner', 'time-off':'Time off', availability:'Team availability', 'leave-balances':'Leave balances', holidays:'Team holidays', milestones:'Milestones', portfolio:'Project portfolio', 'project-updates':'Project updates', 'project-risks':'Project risks', 'project-decisions':'Project decisions', announcements:'Announcements', templates:'Templates', monthly: 'Monthly', tasks: 'Tasks', search: 'Search Tasks', 'team-dashboard': 'Team Dashboard', priorities: 'Weekly Goals',
       roster: 'Team Members', activity: 'Activity', 'org-dashboard': 'Organization Dashboard',
       teams: 'Teams', users: 'Users', 'org-activity': 'Organization Activity', chat: 'Chat',
       'advanced-settings': 'Advanced Settings', 'my-account': 'My Account',
     };
     document.getElementById('view-title').textContent = titles[view] || 'TaskFlow';
     const adminViews = ['org-dashboard','teams','users','org-activity','advanced-settings'];
-    const collaborate = ['chat','roster','activity'];
-    const planning = ['calendar','timeline','templates','time-reports','timesheet','workload','milestones','portfolio','project-updates','monthly','priorities','team-dashboard'];
+    const collaborate = ['chat','roster','activity','announcements'];
+    const planning = ['calendar','timeline','templates','time-reports','timesheet','workload','time-off','availability','leave-balances','holidays','milestones','portfolio','project-updates','project-risks','project-decisions','monthly','priorities','team-dashboard'];
     document.getElementById('view-overline').textContent = adminViews.includes(view) ? 'ORGANIZATION / ADMINISTRATION' : collaborate.includes(view) ? 'WORKSPACE / COLLABORATION' : planning.includes(view) ? 'WORKSPACE / PLANNING' : 'WORKSPACE / YOUR WORK';
     const descriptions = {
       'my-work':'Your priorities, without the noise.',
@@ -391,8 +396,15 @@
       templates:'Reusable starting points for repeatable work.',
       'time-reports':'A clear view of logged work, organized by day and task.',
       timesheet:'Track, submit and review weekly timesheets with an approval history.',
-      workload:'Plan the week with estimates, availability, and logged hours.',
+      workload:'Plan the week with estimates, approved leave, and logged hours.',
+      'time-off':'Request full-day or half-day leave and track approvals.',
+      availability:'See approved team absences and holidays without exposing private request notes.',
+      'leave-balances':'Review annual approved leave; managers can set advisory allowances.',
+      holidays:'Plan shared holidays and keep workload availability accurate.',
       'project-updates':'Share delivery status, risks, and next steps across your team.',
+      'project-risks':'Track project issues, mitigation plans and delivery risk.',
+      'project-decisions':'Capture project choices, owners, outcomes and review dates.',
+      announcements:'Team news, pinned notices and acknowledgements in one place.',
       milestones:'Track delivery targets and work completed against them.',
       portfolio:'See every task list, its progress, and delivery risks.',
       monthly:'A clear view of what is coming up.',
@@ -407,7 +419,7 @@
     if (view !== 'chat') stopChatPolling();
 
     const renderers = {
-      'my-work': renderMyWork, board: renderBoard, inbox: renderInbox, calendar:renderCalendar, timeline:renderTimeline, 'time-reports':renderTimeReports, timesheet:renderTimesheet, workload:renderWorkload, milestones: renderMilestones, portfolio:renderPortfolio, 'project-updates':renderProjectUpdates, templates:renderTemplates, monthly: renderMonthly, tasks: renderTasksView, search: renderSearchTasks, 'team-dashboard': () => renderDashboard('team'),
+      'my-work': renderMyWork, board: renderBoard, inbox: renderInbox, calendar:renderCalendar, timeline:renderTimeline, 'time-reports':renderTimeReports, timesheet:renderTimesheet, workload:renderWorkload, 'time-off':renderTimeOff, availability:renderAvailability, 'leave-balances':renderLeaveBalances, holidays:renderHolidays, milestones: renderMilestones, portfolio:renderPortfolio, 'project-updates':renderProjectUpdates, 'project-risks':renderProjectRisks, 'project-decisions':renderProjectDecisions, announcements:renderAnnouncements, templates:renderTemplates, monthly: renderMonthly, tasks: renderTasksView, search: renderSearchTasks, 'team-dashboard': () => renderDashboard('team'),
       priorities: renderPriorities, roster: renderRoster, activity: () => renderActivity(state.currentTeamId),
       'org-dashboard': () => renderDashboard('org'), teams: renderTeamsAdmin, users: renderUsersAdmin,
       'org-activity': () => renderActivity(null), chat: renderChat, 'advanced-settings': renderAdvancedSettings,
@@ -418,22 +430,63 @@
 
   // TaskFlow: lightweight shell controls (no third-party runtime).
   const themeStorageKey = 'taskflow-appearance';
-  function setAppearance(value) {
-    const theme = value === 'dark' ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', theme);
+  const appearanceOptions = ['light','dark','system','ocean','forest','lavender','sunset','midnight'];
+  const systemThemeQuery = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  const darkPalettes = ['dark','midnight'];
+  function setAppearance(preference, save=true) {
+    const chosen = appearanceOptions.includes(preference) ? preference : 'light';
+    const theme = chosen === 'system' ? (systemThemeQuery?.matches ? 'dark' : 'light')
+      : (darkPalettes.includes(chosen) ? 'dark' : 'light');
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.themePreference = chosen;
+    document.documentElement.dataset.palette = chosen === 'system' ? theme : chosen;
     const switcher = document.getElementById('theme-switch');
     switcher.setAttribute('aria-label', theme === 'dark' ? 'Switch to light appearance' : 'Switch to dark appearance');
-    switcher.setAttribute('title', theme === 'dark' ? 'Use light appearance' : 'Use dark appearance');
+    switcher.setAttribute('title', chosen === 'system'
+      ? 'Following device appearance · click to choose '+(theme === 'dark'?'light':'dark')
+      : 'Use '+(theme === 'dark'?'light':'dark')+' appearance');
+    switcher.setAttribute('aria-pressed', String(theme === 'dark'));
     const iconName = theme === 'dark' ? 'sun' : 'moon';
-    switcher.querySelector('use').setAttribute('href', 'assets/img/icons.svg#' + iconName);
-    try { localStorage.setItem(themeStorageKey, theme); } catch (_) { /* private mode is fine */ }
+    const icon = switcher.querySelector('use');
+    if (icon) {
+      const href = icon.getAttribute('href') || 'assets/img/icons.svg#moon';
+      const prefix = href.includes('#') ? href.slice(0,href.lastIndexOf('#')+1) : 'assets/img/icons.svg#';
+      icon.setAttribute('href',prefix+iconName);
+    }
+    const select = document.getElementById('appearance-preference');
+    if (select) select.value=chosen;
+    document.querySelectorAll('[data-theme-choice]').forEach(button=>{
+      button.setAttribute('aria-pressed',String(button.dataset.themeChoice===chosen));
+    });
+    const themeColors={light:'#ffffff',dark:'#0c1822',ocean:'#f6faff',forest:'#f7faf6',
+      lavender:'#fbf9ff',sunset:'#fffaf6',midnight:'#0b1427'};
+    const meta=document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content',themeColors[chosen==='system'?theme:chosen] || '#ffffff');
+    if (save) {
+      try { localStorage.setItem(themeStorageKey,chosen); } catch (_) { /* no persistent storage */ }
+    }
   }
-  let savedAppearance = 'light';
-  try { savedAppearance = localStorage.getItem(themeStorageKey) || 'light'; } catch (_) { /* blocked storage */ }
-  setAppearance(savedAppearance);
-  document.getElementById('theme-switch').addEventListener('click', () => {
-    setAppearance(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  let savedAppearance = document.documentElement.dataset.themePreference || 'light';
+  try { savedAppearance = localStorage.getItem(themeStorageKey) || savedAppearance; } catch (_) {}
+  setAppearance(savedAppearance,false);
+  document.getElementById('theme-switch').addEventListener('click',()=>{
+    // One-click toggle always selects an explicit Light or Dark setting.
+    setAppearance(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
   });
+  document.getElementById('appearance-preference')?.addEventListener('change',event=>{
+    setAppearance(event.target.value);
+  });
+  document.querySelectorAll('[data-theme-choice]').forEach(button=>{
+    button.addEventListener('click',()=>setAppearance(button.dataset.themeChoice));
+  });
+  if (systemThemeQuery) {
+    const syncSystemAppearance=()=>{
+      if (document.documentElement.dataset.themePreference === 'system') setAppearance('system',false);
+    };
+    if (systemThemeQuery.addEventListener) systemThemeQuery.addEventListener('change',syncSystemAppearance);
+    else if (systemThemeQuery.addListener) systemThemeQuery.addListener(syncSystemAppearance);
+  }
   document.getElementById('topbar-search').addEventListener('click', () => {
     if (!state.user || !state.currentTeamId) return;
     setView('search');
@@ -456,7 +509,7 @@
   });
   // Keyboard shortcut: Ctrl/Cmd+K opens team-scoped task search.
   document.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && state.user && state.currentTeamId) {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'k' && state.user && state.currentTeamId) {
       e.preventDefault();
       setView('search');
       document.getElementById('task-search-q')?.focus();
@@ -469,7 +522,7 @@
   let portfolioCursor = null;
   let portfolioRequestSeq = 0;
   const portfolioHealthText = {
-    empty:'No tasks yet', complete:'Complete', at_risk:'Past due', attention:'Needs attention', on_track:'On track',
+    empty:'No tasks yet', complete:'Complete', at_risk:'At risk', attention:'Needs attention', on_track:'On track',
   };
 
   async function renderPortfolio() {
@@ -494,6 +547,10 @@
       }
       const updates=event.target.closest('[data-portfolio-updates]');
       if(updates){projectUpdateListFilter=String(Number(updates.dataset.portfolioUpdates));setView('project-updates');return;}
+      const decisions=event.target.closest('[data-portfolio-decisions]');
+      if(decisions){decisionProjectFilter=String(Number(decisions.dataset.portfolioDecisions));setView('project-decisions');return;}
+      const risks=event.target.closest('[data-portfolio-risks]');
+      if(risks){riskProjectFilter=String(Number(risks.dataset.portfolioRisks));setView('project-risks');return;}
       const milestone=event.target.closest('[data-portfolio-milestone]');
       if(milestone){
         milestoneListFilter=String(Number(milestone.dataset.portfolioMilestone));
@@ -535,13 +592,15 @@
             <div><strong>${Number(p.overdue_tasks)}</strong><span>Overdue</span></div>
             <div><strong>${Number(p.due_soon_tasks)}</strong><span>Due in 7 days</span></div>
             <div><strong>${Number(p.unassigned_tasks)}</strong><span>Unassigned</span></div>
-            <div><strong>${Number(p.milestones_total)}</strong><span>Milestones</span></div>
+            <div><strong>${Number(p.open_risks||0)}</strong><span>Open risks</span></div>
           </div>
-          <div class="portfolio-meta">${Number(p.milestones_late) ? `<strong>${Number(p.milestones_late)} past-target milestones</strong> · ` : ''}
+          <div class="portfolio-meta">${Number(p.critical_risks||0)?`<strong>${Number(p.critical_risks)} high/critical risk(s)</strong> · `:''}${Number(p.milestones_late) ? `<strong>${Number(p.milestones_late)} past-target milestones</strong> · ` : ''}
             ${hoursText(Number(p.remaining_estimate_minutes))} estimated remaining</div>
           <div class="portfolio-actions"><button type="button" class="btn btn-primary" data-portfolio-list="${Number(p.id)}">Open tasks</button>
             <button type="button" class="btn btn-ghost" data-portfolio-milestone="${Number(p.id)}">Milestones</button>
-            <button type="button" class="btn btn-ghost" data-portfolio-updates="${Number(p.id)}">Updates</button></div>`;
+            <button type="button" class="btn btn-ghost" data-portfolio-updates="${Number(p.id)}">Updates</button>
+            <button type="button" class="btn btn-ghost" data-portfolio-risks="${Number(p.id)}">Risks</button>
+            <button type="button" class="btn btn-ghost" data-portfolio-decisions="${Number(p.id)}">Decisions</button></div>`;
         cards.appendChild(card);
       }
       portfolioCursor=data.next_after_id;
@@ -563,6 +622,297 @@
     }
   }
 
+
+  // ---------------------------------------------------------------
+  // PROJECT RISKS: team-scoped risk/issue registry and manager triage.
+  // ---------------------------------------------------------------
+  let riskProjectFilter = '';
+  let riskStatusFilter = '';
+  let riskSeverityFilter = '';
+  let riskArchived = false;
+  let riskCursor = null;
+  let riskLoadSeq = 0;
+  const riskStatusLabel = {open:'Open',mitigating:'Mitigating',resolved:'Resolved',accepted:'Accepted'};
+  const riskSeverityLabel = {low:'Low',medium:'Medium',high:'High',critical:'Critical'};
+  const riskKindLabel = {risk:'Risk',issue:'Issue'};
+  function riskIsManager() { return iHave(['administrator','manager']); }
+  function riskFormHtml(prefix, item = null) {
+    const editing = !!item;
+    const manager = riskIsManager();
+    const chosenList = Number(item?.list_id || riskProjectFilter || state.currentListId || state.lists[0]?.id || 0);
+    return `<div class="risk-form-grid">
+      <label>Project<select id="${prefix}-list" ${editing?'disabled':''} required>
+        ${state.lists.map(l=>`<option value="${Number(l.id)}" ${Number(l.id)===chosenList?'selected':''}>${esc(l.name)}</option>`).join('')}
+      </select></label>
+      <label>Type<select id="${prefix}-kind">${Object.entries(riskKindLabel).map(([key,value])=>`<option value="${key}" ${key===(item?.kind||'risk')?'selected':''}>${value}</option>`).join('')}</select></label>
+      <label>Severity<select id="${prefix}-severity">${Object.entries(riskSeverityLabel).map(([key,value])=>`<option value="${key}" ${key===(item?.severity||'medium')?'selected':''}>${value}</option>`).join('')}</select></label>
+      <label>Target date <small>(optional)</small><input id="${prefix}-due" type="date" value="${esc(item?.due_date||'')}"></label>
+      ${manager ? `<label>Status<select id="${prefix}-status">${Object.entries(riskStatusLabel).map(([key,value])=>`<option value="${key}" ${key===(item?.status||'open')?'selected':''}>${value}</option>`).join('')}</select></label>
+      <label>Owner <small>(optional)</small><select id="${prefix}-owner"><option value="">Unassigned</option>${state.members.filter(m=>Number(m.team_id||state.currentTeamId)===Number(state.currentTeamId)).map(m=>`<option value="${Number(m.id)}" ${Number(m.id)===Number(item?.owner_id)?'selected':''}>${esc(m.name)}</option>`).join('')}</select></label>` : ''}
+      <label class="risk-span">Title<input id="${prefix}-title" maxlength="160" required placeholder="What could affect delivery?" value="${esc(item?.title||'')}"></label>
+      <label class="risk-span">Details<textarea id="${prefix}-description" maxlength="3000" rows="3" required placeholder="Describe the risk, impact, or issue">${esc(item?.description||'')}</textarea></label>
+      <label class="risk-span">Mitigation plan <small>(optional)</small><textarea id="${prefix}-mitigation" maxlength="3000" rows="2" placeholder="Next steps to reduce the impact">${esc(item?.mitigation||'')}</textarea></label>
+    </div>`;
+  }
+  function riskFormValues(prefix) {
+    const val = key => document.getElementById(prefix+'-'+key)?.value || '';
+    const payload = {list_id:Number(val('list')), kind:val('kind'), severity:val('severity'),
+      title:val('title').trim(),description:val('description').trim(),mitigation:val('mitigation').trim(),due_date:val('due')||null};
+    if (!payload.list_id || payload.title.length<3 || payload.description.length<5) throw new Error('Choose a project and describe the risk.');
+    if (riskIsManager()) {payload.status=val('status');payload.owner_id=val('owner')?Number(val('owner')):null;}
+    return payload;
+  }
+  async function renderProjectRisks() {
+    const container=document.getElementById('view-container');
+    if (!state.currentTeamId) {container.innerHTML=emptyTeamState();return;}
+    const manager=riskIsManager();
+    if(manager && (state.members.teamIdLoaded!==state.currentTeamId || !state.members.length)){
+      try {const response=await api('users.php');state.members=response.users.filter(u=>Number(u.team_id)===Number(state.currentTeamId)&&Number(u.is_active ?? 1)===1);state.members.teamIdLoaded=state.currentTeamId;}
+      catch(err){toast('Could not load potential owners: '+err.message,true);}
+    }
+    document.getElementById('topbar-actions').innerHTML=manager
+      ? `<a class="btn btn-ghost" href="api/project_risks_export.php?team_id=${Number(state.currentTeamId)}" download>Export risks CSV</a>` : '';
+    container.innerHTML=`<section class="portfolio-intro"><div class="milestone-eyebrow">PROJECT OVERSIGHT</div>
+      <h2>Spot risks early. Make a plan.</h2><p>Record issues and delivery risks, assign mitigation owners, and keep a shared view of what needs attention. Reporting a risk never changes task ownership.</p></section>
+      <div class="risk-summary" id="risk-summary" aria-live="polite"></div>
+      <div class="risk-panel"><div class="risk-heading"><h3>Project risk register</h3><button class="btn btn-ghost" id="risk-toggle-create" type="button">+ Report risk or issue</button></div>
+      <form class="risk-create-form hidden" id="risk-create-form">${riskFormHtml('risk-new')}
+        <div class="risk-form-actions"><span>Team members can report; managers manage status and owners.</span><button type="submit" class="btn btn-primary">Submit risk</button></div></form>
+      <div class="risk-filters">
+        <label>Project<select id="risk-filter-project"><option value="">All projects</option>${state.lists.map(l=>`<option value="${Number(l.id)}" ${String(l.id)===riskProjectFilter?'selected':''}>${esc(l.name)}</option>`).join('')}</select></label>
+        <label>Status<select id="risk-filter-status"><option value="">All statuses</option>${Object.entries(riskStatusLabel).map(([key,value])=>`<option value="${key}" ${key===riskStatusFilter?'selected':''}>${value}</option>`).join('')}</select></label>
+        <label>Severity<select id="risk-filter-severity"><option value="">All severities</option>${Object.entries(riskSeverityLabel).map(([key,value])=>`<option value="${key}" ${key===riskSeverityFilter?'selected':''}>${value}</option>`).join('')}</select></label>
+        ${manager ? '<label class="risk-check"><input type="checkbox" id="risk-show-archived" '+(riskArchived?'checked':'')+'> Archived</label>' : ''}
+        <button class="btn btn-ghost" type="button" id="risk-refresh">Refresh</button></div>
+      <div id="risk-feed" class="risk-feed" aria-live="polite">Loading project risks…</div>
+      <div id="risk-more" class="portfolio-more"></div></div>`;
+    document.getElementById('risk-toggle-create').addEventListener('click',()=>document.getElementById('risk-create-form').classList.toggle('hidden'));
+    document.getElementById('risk-create-form').addEventListener('submit',async e=>{
+      e.preventDefault();const button=e.target.querySelector('button[type=submit]');button.disabled=true;
+      try {await api('project_risks.php',{method:'POST',body:{team_id:Number(state.currentTeamId),action:'create',...riskFormValues('risk-new')}});
+        toast('Risk reported'); await renderProjectRisks();
+      } catch(err){toast(err.message,true);} finally {button.disabled=false;}
+    });
+    for (const [name, key] of [['project','riskProjectFilter'],['status','riskStatusFilter'],['severity','riskSeverityFilter']]) {
+      document.getElementById('risk-filter-'+name).addEventListener('change',e=>{
+        if(key==='riskProjectFilter')riskProjectFilter=e.target.value;
+        if(key==='riskStatusFilter')riskStatusFilter=e.target.value;
+        if(key==='riskSeverityFilter')riskSeverityFilter=e.target.value;
+        loadProjectRisks(false);
+      });
+    }
+    document.getElementById('risk-show-archived')?.addEventListener('change',e=>{riskArchived=e.target.checked;loadProjectRisks(false);});
+    document.getElementById('risk-refresh').addEventListener('click',()=>loadProjectRisks(false));
+    container.onclick=async e=>{
+      const edit=e.target.closest('[data-risk-edit]');
+      if(edit){const id=Number(edit.dataset.riskEdit);const item=riskVisibleEntries.find(r=>Number(r.id)===id);if(item)editProjectRisk(item);return;}
+      const action=e.target.closest('[data-risk-action]');
+      if(action){const id=Number(action.dataset.riskId);const item=riskVisibleEntries.find(r=>Number(r.id)===id);
+        if(!item)return;
+        const operation=action.dataset.riskAction;
+        if(!confirm(operation==='archive'?'Archive this risk?':'Restore this risk?'))return;
+        try{await api('project_risks.php',{method:'POST',body:{team_id:Number(state.currentTeamId),action:operation,id,version:item.version}});
+          toast('Entry updated');loadProjectRisks(false);}catch(err){toast(err.message,true);}return;
+      }
+    };
+    await loadProjectRisks(false);
+  }
+  let riskVisibleEntries=[];
+  async function loadProjectRisks(append=false) {
+    const teamId=Number(state.currentTeamId), seq=++riskLoadSeq;
+    const feed=document.getElementById('risk-feed'),more=document.getElementById('risk-more');
+    if(!feed||!more)return;
+    if(!append){riskCursor=null;riskVisibleEntries=[];feed.textContent='Loading…';}
+    const query=new URLSearchParams({team_id:String(teamId)});
+    if(riskProjectFilter)query.set('list_id',riskProjectFilter);
+    if(riskStatusFilter)query.set('status',riskStatusFilter);
+    if(riskSeverityFilter)query.set('severity',riskSeverityFilter);
+    if(riskArchived)query.set('archived','1');
+    if(append&&riskCursor)query.set('before_id',String(riskCursor));
+    try {
+      const response=await api('project_risks.php?'+query.toString());
+      if(seq!==riskLoadSeq||state.currentView!=='project-risks'||teamId!==Number(state.currentTeamId))return;
+      if(!append)feed.innerHTML='';
+      riskVisibleEntries.push(...response.risks);
+      const sum=response.summary;
+      document.getElementById('risk-summary').innerHTML=`<div><strong>${Number(sum.active_count)}</strong><span>Active entries</span></div>
+        <div><strong>${Number(sum.high_count)}</strong><span>High / critical</span></div>
+        <div><strong>${Number(sum.overdue_count)}</strong><span>Past target</span></div>`;
+      if(!response.risks.length&&!append)feed.innerHTML='<div class="empty-state"><h3>No matching entries</h3><p>Risks and issues reported for this team will appear here.</p></div>';
+      for(const risk of response.risks) {
+        const severity=Object.hasOwn(riskSeverityLabel,risk.severity)?risk.severity:'medium';
+        const status=Object.hasOwn(riskStatusLabel,risk.status)?risk.status:'open';
+        const kind=Object.hasOwn(riskKindLabel,risk.kind)?risk.kind:'risk';
+        const card=document.createElement('article');card.className='risk-card';
+        card.innerHTML=`<div class="risk-card-head"><div class="risk-tags"><span class="risk-kind">${riskKindLabel[kind]}</span>
+          <span class="risk-severity risk-severity-${severity}">${riskSeverityLabel[severity]}</span>
+          <span class="risk-status">${riskStatusLabel[status]}</span></div>
+          <span class="risk-project">${esc(risk.project_name)}</span></div>
+          <h4>${esc(risk.title)}</h4><p class="risk-description">${esc(risk.description)}</p>
+          ${risk.mitigation?`<div class="risk-mitigation"><strong>Mitigation</strong><p>${esc(risk.mitigation)}</p></div>`:''}
+          <div class="risk-meta"><span>Owner: ${esc(risk.owner_name||'Not assigned')}</span><span>Target: ${risk.due_date?fmtDate(risk.due_date):'Not set'}</span>
+          <span>Reported by ${esc(risk.reported_name)}</span></div>
+          ${riskIsManager()?`<div class="risk-actions">${riskArchived?'':`<button type="button" class="btn btn-ghost" data-risk-edit="${Number(risk.id)}">Edit / triage</button>`}
+            <button type="button" class="btn btn-ghost" data-risk-action="${riskArchived?'restore':'archive'}" data-risk-id="${Number(risk.id)}">${riskArchived?'Restore':'Archive'}</button></div>`:''}`;
+        feed.appendChild(card);
+      }
+      riskCursor=response.next_before_id;
+      more.innerHTML=riskCursor?'<button type="button" class="btn btn-ghost">Load older entries</button>':'';
+      more.querySelector('button')?.addEventListener('click',()=>loadProjectRisks(true));
+    } catch(err){if(seq!==riskLoadSeq||state.currentView!=='project-risks')return;
+      if(!append)feed.innerHTML=`<div class="load-error-box">${esc(err.message)}</div>`;else toast(err.message,true);}
+  }
+  function editProjectRisk(item) {
+    if(!riskIsManager())return;
+    promptModal('Edit project risk',riskFormHtml('risk-edit',item),async()=>{
+      await api('project_risks.php',{method:'POST',body:{team_id:Number(state.currentTeamId),action:'update',id:Number(item.id),version:Number(item.version),...riskFormValues('risk-edit')}});
+      toast('Risk updated');await loadProjectRisks(false);
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // PROJECT DECISIONS: proposer history with manager review and owners.
+  // ---------------------------------------------------------------
+  let decisionProjectFilter = '';
+  let decisionStatusFilter = '';
+  let decisionArchived = false;
+  let decisionCursor = null;
+  let decisionRequestSeq = 0;
+  const decisionStatuses = {proposed:'Proposed',approved:'Approved',rejected:'Rejected',deferred:'Deferred'};
+  function decisionCanManage() { return iHave(['administrator','manager']); }
+  function decisionFormHtml(prefix, item = null) {
+    const manager=decisionCanManage();
+    const chosen=Number(item?.list_id || decisionProjectFilter || state.currentListId || state.lists[0]?.id || 0);
+    const status=item?.status||'proposed';
+    return `<div class="decision-form-grid">
+      <label>Project<select id="${prefix}-list" required ${item?'disabled':''}>${state.lists.map(l=>`<option value="${Number(l.id)}" ${Number(l.id)===chosen?'selected':''}>${esc(l.name)}</option>`).join('')}</select></label>
+      <label>Review date <small>(optional)</small><input type="date" id="${prefix}-review" value="${esc(item?.review_date||'')}"></label>
+      ${manager?`<label>Status<select id="${prefix}-status">${Object.entries(decisionStatuses).map(([key,value])=>`<option value="${key}" ${key===status?'selected':''}>${value}</option>`).join('')}</select></label>
+      <label>Owner <small>(optional)</small><select id="${prefix}-owner"><option value="">Not assigned</option>${state.members.filter(m=>Number(m.team_id||state.currentTeamId)===Number(state.currentTeamId)&&Number(m.is_active??1)===1).map(m=>`<option value="${Number(m.id)}" ${Number(item?.owner_id)===Number(m.id)?'selected':''}>${esc(m.name)}</option>`).join('')}</select></label>`:''}
+      <label class="decision-span">Decision title<input id="${prefix}-title" minlength="3" maxlength="160" required placeholder="What needs to be decided?" value="${esc(item?.title||'')}"></label>
+      <label class="decision-span">Background and options<textarea id="${prefix}-context" rows="3" minlength="5" maxlength="4000" required placeholder="Summarize the decision and why it matters">${esc(item?.context||'')}</textarea></label>
+      <label class="decision-span">Outcome <small>(${manager?'required to approve':'optional'})</small><textarea id="${prefix}-outcome" rows="2" maxlength="4000" placeholder="Record the chosen approach and next steps">${esc(item?.outcome||'')}</textarea></label>
+    </div>`;
+  }
+  function decisionFormValues(prefix) {
+    const val=key=>document.getElementById(prefix+'-'+key)?.value||'';
+    const result={list_id:Number(val('list')), title:val('title').trim(),context:val('context').trim(),
+      outcome:val('outcome').trim(),review_date:val('review')||null};
+    if (!result.list_id||result.title.length<3||result.context.length<5)throw new Error('Choose a project and describe the decision.');
+    if(decisionCanManage()) {
+      result.status=val('status')||'proposed';
+      result.owner_id=val('owner')?Number(val('owner')):null;
+      if(result.status==='approved'&&!result.outcome)throw new Error('Add an outcome before approving the decision.');
+    }
+    return result;
+  }
+  async function renderProjectDecisions() {
+    const container=document.getElementById('view-container');
+    if(!state.currentTeamId){container.innerHTML=emptyTeamState();return;}
+    const manager=decisionCanManage();
+    if(manager&&(state.members.teamIdLoaded!==state.currentTeamId||!state.members.length)) {
+      try {const r=await api('users.php');state.members=r.users.filter(u=>Number(u.team_id)===Number(state.currentTeamId)&&Number(u.is_active??1)===1);state.members.teamIdLoaded=state.currentTeamId;}
+      catch(err){toast('Could not load decision owners: '+err.message,true);}
+    }
+    document.getElementById('topbar-actions').innerHTML=manager ? `<a class="btn btn-ghost" href="api/project_decisions_export.php?team_id=${Number(state.currentTeamId)}" download>Export decisions CSV</a>` : '';
+    container.innerHTML=`<section class="portfolio-intro"><div class="milestone-eyebrow">PROJECT GOVERNANCE</div>
+       <h2>Decisions everyone can find.</h2><p>Propose and review important project choices in one shared history. Managers record outcomes; an approval does not automatically alter tasks or other records.</p></section>
+      <div class="decision-summary" id="decision-summary" aria-live="polite"></div>
+      <section class="decision-panel"><div class="decision-section-heading"><h3>Decision register</h3>
+        <button type="button" class="btn btn-primary" id="decision-toggle-create">+ Propose decision</button></div>
+      <form id="decision-create-form" class="decision-create-form hidden">${decisionFormHtml('decision-new')}
+        <div class="decision-form-actions"><span>Everyone can propose; managers review outcomes.</span><button type="submit" class="btn btn-primary">Save proposal</button></div></form>
+      <div class="decision-filters">
+        <label>Project<select id="decision-filter-project"><option value="">All projects</option>${state.lists.map(l=>`<option value="${Number(l.id)}">${esc(l.name)}</option>`).join('')}</select></label>
+        <label>Status<select id="decision-filter-status"><option value="">All statuses</option>${Object.entries(decisionStatuses).map(([key,label])=>`<option value="${key}">${label}</option>`).join('')}</select></label>
+        ${manager?'<label class="decision-archived"><input type="checkbox" id="decision-filter-archived"> Archived</label>':''}
+        <button type="button" class="btn btn-ghost" id="decision-refresh">Refresh</button>
+      </div><div class="decision-feed" id="decision-feed" aria-live="polite">Loading decisions…</div>
+      <div class="portfolio-more" id="decision-more"></div></section>`;
+    container.querySelector('#decision-filter-project').value=decisionProjectFilter;
+    container.querySelector('#decision-filter-status').value=decisionStatusFilter;
+    if(manager)container.querySelector('#decision-filter-archived').checked=decisionArchived;
+    container.querySelector('#decision-toggle-create').addEventListener('click',()=>container.querySelector('#decision-create-form').classList.toggle('hidden'));
+    container.querySelector('#decision-refresh').addEventListener('click',()=>loadProjectDecisions(false));
+    container.querySelector('#decision-filter-project').addEventListener('change',e=>{decisionProjectFilter=e.target.value;loadProjectDecisions(false);});
+    container.querySelector('#decision-filter-status').addEventListener('change',e=>{decisionStatusFilter=e.target.value;loadProjectDecisions(false);});
+    container.querySelector('#decision-filter-archived')?.addEventListener('change',e=>{decisionArchived=e.target.checked;loadProjectDecisions(false);});
+    container.querySelector('#decision-create-form').addEventListener('submit',async e=>{
+      e.preventDefault();const submit=e.currentTarget.querySelector('button[type="submit"]');submit.disabled=true;
+      try {
+        await api('project_decisions.php',{method:'POST',body:{team_id:Number(state.currentTeamId),action:'create',...decisionFormValues('decision-new')}});
+        e.currentTarget.reset();e.currentTarget.classList.add('hidden');toast('Decision proposal saved');
+        await loadProjectDecisions(false);
+      }catch(err){toast(err.message,true);}finally{submit.disabled=false;}
+    });
+    container.querySelector('#decision-feed').addEventListener('click',async e=>{
+      const edit=e.target.closest('[data-decision-edit]');
+      if(edit){const item=decisionItems.find(r=>r.id===Number(edit.dataset.decisionEdit));if(item)editProjectDecision(item);return;}
+      const action=e.target.closest('[data-decision-action]');if(!action)return;
+      if(!decisionCanManage())return;
+      const item=decisionItems.find(r=>r.id===Number(action.dataset.decisionId));if(!item)return;
+      const operation=action.dataset.decisionAction;
+      if(!window.confirm(`${operation==='archive'?'Archive':'Restore'} this decision?`))return;
+      action.disabled=true;
+      try{
+        await api('project_decisions.php',{method:'POST',body:{team_id:Number(state.currentTeamId),id:item.id,version:item.version,action:operation}});
+        toast('Decision '+(operation==='archive'?'archived':'restored'));await loadProjectDecisions(false);
+      }catch(err){toast(err.message,true);action.disabled=false;}
+    });
+    await loadProjectDecisions(false);
+  }
+  let decisionItems=[];
+  async function loadProjectDecisions(append=false) {
+    const feed=document.getElementById('decision-feed'),more=document.getElementById('decision-more');
+    if(!feed||!more)return;
+    const teamId=Number(state.currentTeamId),project=decisionProjectFilter,status=decisionStatusFilter,archived=decisionArchived;
+    const seq=++decisionRequestSeq;
+    if(!append){decisionCursor=null;decisionItems=[];feed.innerHTML='<p>Loading decisions…</p>';}
+    try{
+      const params=new URLSearchParams({team_id:String(teamId)});
+      if(project)params.set('list_id',project);
+      if(status)params.set('status',status);
+      if(archived)params.set('archived','1');
+      if(append&&decisionCursor)params.set('before_id',String(decisionCursor));
+      const response=await api('project_decisions.php?'+params.toString());
+      if(seq!==decisionRequestSeq||state.currentView!=='project-decisions'||teamId!==Number(state.currentTeamId)||project!==decisionProjectFilter||status!==decisionStatusFilter||archived!==decisionArchived)return;
+      if(!append)feed.innerHTML='';
+      decisionItems.push(...response.decisions);
+      const summary=document.getElementById('decision-summary');
+      summary.innerHTML=`<div><strong>${Number(response.summary.total)}</strong><span>Current decisions</span></div>
+        <div><strong>${Number(response.summary.pending)}</strong><span>Awaiting review</span></div>
+        <div><strong>${Number(response.summary.approved)}</strong><span>Approved</span></div>
+        <div><strong>${Number(response.summary.past_review)}</strong><span>Past review date</span></div>`;
+      for(const item of response.decisions){
+        const statusText=Object.hasOwn(decisionStatuses,item.status)?item.status:'proposed';
+        const card=document.createElement('article');card.className='decision-card';
+        card.innerHTML=`<div class="decision-card-head"><span class="decision-status decision-status-${statusText}">${decisionStatuses[statusText]}</span>
+           <span class="decision-project">${esc(item.project_name)}</span></div>
+           <h4>${esc(item.title)}</h4><p class="decision-context">${esc(item.context)}</p>
+           ${item.outcome?`<div class="decision-outcome"><strong>Outcome / next steps</strong><p>${esc(item.outcome)}</p></div>`:''}
+           <div class="decision-meta"><span>Proposed by ${esc(item.reporter_name)}</span><span>Owner: ${esc(item.owner_name||'Unassigned')}</span>
+             <span>Review: ${item.review_date?fmtDate(item.review_date):'Not scheduled'}</span><span>Created ${esc(item.created_at)}</span></div>
+           ${response.can_manage?`<div class="decision-actions">${archived?'':`<button type="button" class="btn btn-ghost" data-decision-edit="${Number(item.id)}">Review / edit</button>`}
+             <button type="button" class="btn btn-ghost" data-decision-action="${archived?'restore':'archive'}" data-decision-id="${Number(item.id)}">${archived?'Restore':'Archive'}</button></div>`:''}`;
+        feed.appendChild(card);
+      }
+      if(!decisionItems.length)feed.innerHTML='<div class="empty-state"><h3>No decisions yet</h3><p>Propose a project decision and keep a clear record of the outcome.</p></div>';
+      decisionCursor=response.next_before_id;
+      more.innerHTML=decisionCursor?'<button type="button" class="btn btn-ghost">Load older decisions</button>':'';
+      more.querySelector('button')?.addEventListener('click',()=>loadProjectDecisions(true));
+    }catch(err){
+      if(seq!==decisionRequestSeq||state.currentView!=='project-decisions')return;
+      if(!append)feed.innerHTML=`<div class="load-error-box">${esc(err.message)}</div>`;else toast(err.message,true);
+    }
+  }
+  function editProjectDecision(item) {
+    if(!decisionCanManage())return;
+    promptModal('Review project decision',decisionFormHtml('decision-edit',item),async()=>{
+      await api('project_decisions.php',{method:'POST',body:{team_id:Number(state.currentTeamId),
+        id:Number(item.id),version:Number(item.version),action:'update',...decisionFormValues('decision-edit')}});
+      toast('Decision updated');await loadProjectDecisions(false);
+    });
+  }
 
   // ---------------------------------------------------------------
   // PROJECT UPDATES: append-only status reporting per task list.
@@ -647,6 +997,140 @@
       if(!append)feed.innerHTML=`<p class="load-error-box">${esc(err.message)}</p>`;
       else toast(err.message,true);
     }
+  }
+
+  // ---------------------------------------------------------------
+  // ANNOUNCEMENTS: team feed with optional, auditable acknowledgements.
+  // ---------------------------------------------------------------
+  let announcementCursor = null;
+  let announcementShowArchive = false;
+  let announcementRequestSeq = 0;
+  async function renderAnnouncements() {
+    const container = document.getElementById('view-container');
+    if (!state.currentTeamId) { container.innerHTML = emptyTeamState(); return; }
+    const manager = iHave(['administrator','manager']);
+    container.innerHTML = `<section class="portfolio-intro"><div class="milestone-eyebrow">TEAM COMMUNICATIONS</div>
+      <h2>Keep everyone in the loop.</h2><p>Find important team notices in one place. Acknowledgements confirm that someone saw a notice; they do not signify approval of its contents.</p></section>
+      ${manager ? `<form id="announcement-form" class="announcement-form">
+       <h3>Publish a team announcement</h3>
+       <label for="an-title">Title</label><input id="an-title" required minlength="3" maxlength="150" placeholder="e.g. December planning kickoff">
+       <label for="an-message">Message</label><textarea id="an-message" rows="4" required minlength="5" maxlength="4000" placeholder="What does the team need to know?"></textarea>
+       <div class="announcement-options"><label><input type="checkbox" id="an-pinned"> Pin this announcement</label>
+         <label><input type="checkbox" id="an-ack"> Ask colleagues to acknowledge</label>
+         <label>Expires (optional)<input id="an-expiry" type="date"></label></div>
+       <div class="announcement-actions"><span>Managers can archive notices after publishing.</span><button type="submit" class="btn btn-primary">Publish announcement</button></div>
+      </form>` : ''}
+      <div class="project-update-toolbar"><strong>Team announcements</strong>
+        ${manager ? '<label class="announcement-archive-label"><input type="checkbox" id="an-archived"> Show archived / expired</label>' : ''}
+        <button type="button" class="btn btn-ghost" id="an-refresh">Refresh</button></div>
+      <div id="an-feed" class="announcement-feed" aria-live="polite">Loading announcements…</div>
+      <div id="an-more" class="portfolio-more"></div>`;
+    container.querySelector('#an-refresh')?.addEventListener('click',()=>loadAnnouncements(false));
+    const archiveInput=container.querySelector('#an-archived');
+    if(archiveInput){archiveInput.checked=announcementShowArchive;archiveInput.addEventListener('change',()=>{
+      announcementShowArchive=archiveInput.checked;loadAnnouncements(false);
+    });}
+    container.querySelector('#announcement-form')?.addEventListener('submit',async event=>{
+      event.preventDefault();const button=event.currentTarget.querySelector('button[type="submit"]');button.disabled=true;
+      try{
+        const payload={action:'create',team_id:Number(state.currentTeamId),title:container.querySelector('#an-title').value.trim(),
+          message:container.querySelector('#an-message').value.trim(),requires_ack:container.querySelector('#an-ack').checked,
+          is_pinned:container.querySelector('#an-pinned').checked,expires_on:container.querySelector('#an-expiry').value||null};
+        await api('announcements.php',{method:'POST',body:payload});
+        event.currentTarget.reset();announcementShowArchive=false;
+        if(archiveInput)archiveInput.checked=false;
+        toast('Announcement published');await loadAnnouncements(false);
+      }catch(error){toast(error.message,true);}finally{button.disabled=false;}
+    });
+    container.querySelector('#an-feed').addEventListener('click',async event=>{
+      const button=event.target.closest('button[data-announcement-action]');if(!button||button.disabled)return;
+      const id=Number(button.dataset.announcementId),action=button.dataset.announcementAction;
+      if(!Number.isSafeInteger(id)||id<=0)return;
+      if(action==='roster'){
+        await showAnnouncementRoster(id,button.closest('.announcement-card'));return;
+      }
+      if(action==='archive' && !window.confirm('Archive this announcement?'))return;
+      button.disabled=true;
+      try{
+        await api('announcements.php',{method:'POST',body:{action,id,team_id:Number(state.currentTeamId)}});
+        toast(action==='ack'?'Acknowledgement saved':action==='archive'?'Announcement archived':'Marked as read');
+        await loadAnnouncements(false);
+      }catch(error){toast(error.message,true);button.disabled=false;}
+    });
+    await loadAnnouncements(false);
+  }
+
+  async function loadAnnouncements(append=false) {
+    const feed=document.getElementById('an-feed'),more=document.getElementById('an-more');
+    if(!feed||!more)return;
+    const teamId=Number(state.currentTeamId),archived=announcementShowArchive,seq=++announcementRequestSeq;
+    if(!append){announcementCursor=null;feed.innerHTML='<p>Loading announcements…</p>';}
+    try{
+      const query=new URLSearchParams({team_id:String(teamId)});
+      if(archived)query.set('archived','1');
+      if(append&&announcementCursor)query.set('cursor',announcementCursor);
+      const result=await api('announcements.php?'+query.toString());
+      if(seq!==announcementRequestSeq||state.currentView!=='announcements'||Number(state.currentTeamId)!==teamId||archived!==announcementShowArchive)return;
+      if(!append)feed.innerHTML='';
+      for(const notice of result.announcements){
+        const card=document.createElement('article');card.className='announcement-card'+(notice.is_read?'':' announcement-unread');
+        card.dataset.announcementId=String(notice.id);
+        const meta=[];
+        if(notice.is_pinned)meta.push('<span class="announcement-flag">Pinned</span>');
+        if(notice.requires_ack)meta.push('<span class="announcement-flag">Acknowledgement requested</span>');
+        if(!notice.is_read&&!archived)meta.push('<span class="announcement-flag announcement-new">Unread</span>');
+        card.innerHTML=`<div class="announcement-meta">${meta.join('')}<time>${esc(notice.created_at)}</time></div>
+          <h3>${esc(notice.title)}</h3><p class="announcement-author">Posted by ${esc(notice.author_name)}</p>
+          <div class="announcement-body">${esc(notice.message)}</div>
+          ${notice.expires_on?`<p class="announcement-expiry">Visible until ${esc(notice.expires_on)}</p>`:''}
+          ${result.can_manage?`<p class="announcement-stats">Read by ${Number(notice.read_count||0)} of ${Number(notice.active_members||0)} active members${notice.requires_ack?` · Acknowledged by ${Number(notice.ack_count||0)}`:''}</p>`:''}
+          <div class="announcement-card-actions">
+            ${!notice.is_read&&!archived?`<button type="button" class="btn btn-ghost" data-announcement-action="read" data-announcement-id="${Number(notice.id)}">Mark as read</button>`:''}
+            ${notice.requires_ack&&!notice.is_acknowledged&&!archived?`<button type="button" class="btn btn-primary" data-announcement-action="ack" data-announcement-id="${Number(notice.id)}">Acknowledge</button>`:''}
+            ${notice.is_acknowledged?'<span class="announcement-acknowledged">✓ Acknowledged</span>':''}
+            ${result.can_manage?`<button type="button" class="btn btn-ghost" data-announcement-action="roster" data-announcement-id="${Number(notice.id)}">View read receipts</button>`:''}
+            ${result.can_manage&&!archived?`<button type="button" class="btn btn-ghost" data-announcement-action="archive" data-announcement-id="${Number(notice.id)}">Archive</button>`:''}
+          </div><div class="announcement-receipts hidden"></div>`;
+        feed.appendChild(card);
+      }
+      if(!feed.children.length)feed.innerHTML='<div class="empty-state"><h3>No announcements yet</h3><p>Managers can publish the first team notice above.</p></div>';
+      announcementCursor=result.next_cursor;
+      more.innerHTML=announcementCursor?'<button type="button" class="btn btn-ghost">Load older announcements</button>':'';
+      more.querySelector('button')?.addEventListener('click',()=>loadAnnouncements(true));
+    }catch(error){
+      if(seq!==announcementRequestSeq||state.currentView!=='announcements')return;
+      if(!append)feed.innerHTML=`<p class="load-error-box">${esc(error.message)}</p>`;
+      else toast(error.message,true);
+    }
+  }
+  async function showAnnouncementRoster(announcementId,card){
+    if(!card)return;
+    const target=card.querySelector('.announcement-receipts');
+    if(!target)return;
+    if(!target.classList.contains('hidden')){target.classList.add('hidden');return;}
+    target.classList.remove('hidden');target.textContent='Loading member receipts…';
+    const teamId=Number(state.currentTeamId);
+    let cursor=null;
+    async function loadRoster(append){
+      try{
+        const query=new URLSearchParams({action:'roster',team_id:String(teamId),id:String(announcementId)});
+        if(append&&cursor)query.set('after_user_id',String(cursor));
+        const result=await api('announcements.php?'+query.toString());
+        if(state.currentView!=='announcements'||teamId!==Number(state.currentTeamId)||!target.isConnected)return;
+        if(!append)target.innerHTML='<h4>Member receipts</h4><div class="announcement-receipt-rows"></div><div class="announcement-receipt-more"></div>';
+        const list=target.querySelector('.announcement-receipt-rows');
+        for(const row of result.members){
+          const entry=document.createElement('div');entry.className='announcement-receipt-row';
+          entry.innerHTML=`<span>${esc(row.name)}</span><span>${row.acknowledged_at?'Acknowledged':row.read_at?'Read':'Not read'}</span>`;
+          list.appendChild(entry);
+        }
+        cursor=result.next_after_user_id;
+        const more=target.querySelector('.announcement-receipt-more');
+        more.innerHTML=cursor?'<button type="button" class="btn btn-ghost">Load more members</button>':'';
+        more.querySelector('button')?.addEventListener('click',()=>loadRoster(true));
+      }catch(error){target.textContent=error.message;}
+    }
+    await loadRoster(false);
   }
 
   // ---------------------------------------------------------------
@@ -2927,7 +3411,7 @@
         <button type="button" class="btn btn-ghost" id="workload-next" aria-label="Next week">Next →</button>
         ${canManage ? `<label>View <select id="workload-scope"><option value="team" ${workloadScope==='team'?'selected':''}>Whole team</option><option value="mine" ${workloadScope==='mine'?'selected':''}>My work</option></select></label>` : '<span class="workload-scope-label">My work</span>'}
       </section>
-      <p class="workload-explain">Plans include open tasks assigned to a person and due this UTC Monday–Sunday week. Unestimated tasks are flagged, not counted as zero-effort. A shared task's full estimate appears for each assignee; logged time is separate.</p>
+      <p class="workload-explain">Open tasks due this UTC Monday-Sunday week are compared with each member's scheduled workdays. Approved half-day leave and team holidays reduce availability without double-counting overlap. Logged time remains separate.</p>
       <div id="workload-results" aria-live="polite"><p>Calculating workload…</p></div>`;
     document.getElementById('workload-prev').addEventListener('click', () => moveWorkloadWeek(-1));
     document.getElementById('workload-next').addEventListener('click', () => moveWorkloadWeek(1));
@@ -2964,10 +3448,10 @@
         const progress = row.load_percent===null ? (Number(row.planned_minutes)>0 ? 100 : 0) : Math.max(0,Math.min(100,Number(row.load_percent)));
         return `<article class="workload-card ${over?'workload-over':''}" data-member-id="${Number(row.user_id)}">
           <div class="workload-card-header"><div><span class="workload-avatar">${esc(initials(row.name))}</span><strong>${esc(row.name)}</strong></div><span class="workload-chip ${over?'is-over':''}">${row.load_percent === null ? (Number(row.planned_minutes)>0?'No capacity':'Not scheduled') : row.load_percent+'% planned'}</span></div>
-          <div class="workload-hours"><div><small>Due this week</small><strong>${hoursText(row.planned_minutes)}</strong></div><div><small>Availability</small><strong>${hoursText(row.capacity_minutes)}</strong></div><div><small>Logged this week</small><strong>${hoursText(row.logged_minutes)}</strong></div></div>
+          <div class="workload-hours"><div><small>Due this week</small><strong>${hoursText(row.planned_minutes)}</strong></div><div><small>Available this week</small><strong>${hoursText(row.effective_capacity_minutes ?? row.capacity_minutes)}</strong>${Number(row.approved_leave_weekdays)?`<small class="leave-adjustment">${Number(row.approved_leave_weekdays)} approved leave day(s)</small>`:''}${Number(row.holiday_days)?`<small class="leave-adjustment">${Number(row.holiday_days)} holiday day(s)</small>`:''}<small>${Number(row.scheduled_days ?? 5)} scheduled day(s)</small></div><div><small>Logged this week</small><strong>${hoursText(row.logged_minutes)}</strong></div></div>
           <div class="workload-meter" aria-label="${esc(row.name)}: ${esc(row.load_percent===null?'No capacity set':row.load_percent+' percent of capacity')}" role="img"><span style="width:${progress}%"></span></div>
           <div class="workload-foot"><span>${Number(row.due_tasks)} open due task(s)${Number(row.unestimated_tasks)?' · '+Number(row.unestimated_tasks)+' without estimates':''}</span>
-          ${row.can_edit_capacity?`<label>Weekly capacity (h) <input type="number" data-capacity-id="${Number(row.user_id)}" min="0" max="80" step="0.5" value="${Number(row.capacity_minutes)/60}"></label><button type="button" class="btn btn-ghost" data-save-capacity="${Number(row.user_id)}">Save</button>`:''}</div>
+          ${row.can_edit_capacity?`<label>Weekly capacity (h) <input type="number" data-capacity-id="${Number(row.user_id)}" min="0" max="80" step="0.5" value="${Number(row.capacity_minutes)/60}"></label><button type="button" class="btn btn-ghost" data-save-capacity="${Number(row.user_id)}">Save hours</button><details class="workdays-editor"><summary>Scheduled workdays</summary><div class="workdays-options">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((label,index)=>`<label><input type="checkbox" data-workday="${1<<index}" ${(Number(row.workdays_mask ?? 31)&(1<<index))?'checked':''}>${label}</label>`).join('')}</div><button type="button" class="btn btn-ghost" data-save-schedule="${Number(row.user_id)}">Save workdays</button></details>`:''}</div>
         </article>`;
       }).join('');
       target.appendChild(list);
@@ -2984,6 +3468,18 @@
           toast('Capacity saved');renderWorkload();
         } catch(err) {toast(err.message,true);btn.disabled=false;}
       }));
+      list.querySelectorAll('[data-save-schedule]').forEach(btn => btn.addEventListener('click', async () => {
+        const id=Number(btn.dataset.saveSchedule);
+        const card=btn.closest('.workload-card');
+        let mask=0;
+        card.querySelectorAll('[data-workday]:checked').forEach(checkbox => {mask |= Number(checkbox.dataset.workday);});
+        if (!mask) {toast('Select at least one workday.',true);return;}
+        btn.disabled=true;
+        try {
+          await api('workload.php',{method:'POST',body:{action:'set_schedule',team_id:teamId,user_id:id,workdays_mask:mask}});
+          toast('Schedule saved');await loadWorkload(false);
+        } catch(error){toast(error.message,true);btn.disabled=false;}
+      }));
       workloadOffset=data.next_offset;
       if (workloadOffset !== null) {
         const more=document.createElement('button');more.id='workload-more';more.className='btn btn-ghost';more.textContent='Load more team members';
@@ -2997,18 +3493,356 @@
   }
 
   // ---------------------------------------------------------------
+  // TIME OFF: personal requests and manager approvals, team-scoped.
+  // ---------------------------------------------------------------
+  let timeOffScope = 'mine';
+  let timeOffCursor = null;
+  async function renderTimeOff() {
+    const target = document.getElementById('view-container');
+    if (!state.currentTeamId) {
+      target.innerHTML = '<div class="empty-state"><h3>Choose a team</h3><p>Join or select a team to request time off.</p></div>';
+      return;
+    }
+    const canReview = iHave(['administrator', 'manager']);
+    const canRequest = Number(state.user.team_id) === Number(state.currentTeamId);
+    if (!canReview) timeOffScope = 'mine';
+    if (!canRequest) timeOffScope = 'team';
+    timeOffCursor = null;
+    target.innerHTML = `<div class="feature-intro"><h2>Make room for time away</h2><p>Submit your dates, track a decision, and keep team capacity realistic.</p></div>
+      <div class="leave-layout">
+        ${canRequest?`<section class="leave-request-card" aria-label="Request time off">
+          <h3>New time-off request</h3>
+          <p>Choose a date range for full days, or a single date for a morning or afternoon. Your work schedule and team holidays are respected.</p>
+          <form id="leave-request-form" class="leave-request-form">
+            <label>First day <input type="date" name="start_date" required></label>
+            <label>Last day <input type="date" name="end_date" required></label>
+            <label>Duration <select name="day_portion"><option value="full">Full day(s)</option><option value="am">Morning half-day</option><option value="pm">Afternoon half-day</option></select></label>
+            <label class="leave-wide">Coverage colleague (optional) <select name="backup_user_id" id="leave-backup"><option value="">No coverage requested</option></select><small>This person may accept or decline a handoff. Tasks are not reassigned.</small></label>
+            <label class="leave-wide">Note for your manager <textarea name="reason" maxlength="300" rows="3" placeholder="Optional context"></textarea></label>
+            <button type="submit" class="btn btn-primary">Submit request</button>
+          </form>
+        </section>`:'<section class="leave-request-card"><h3>Review only</h3><p>You can review leave for this team, but may request time off only in your own team.</p></section>'}
+        <section class="leave-history-card" aria-label="Time off history">
+          <div class="leave-heading"><h3>Requests</h3>
+          <label>Show <select id="leave-scope">${canRequest?`<option value="mine" ${timeOffScope==='mine'?'selected':''}>My requests</option>`:''}${canReview?`<option value="team" ${timeOffScope==='team'?'selected':''}>Team requests</option>`:''}<option value="coverage" ${timeOffScope==='coverage'?'selected':''}>Covering for others</option></select></label></div>
+          <div id="leave-results" aria-live="polite"><p>Loading requests...</p></div>
+        </section>
+      </div>`;
+    const form=target.querySelector('#leave-request-form');
+    if (form) {
+    // Load a team-only choice list; never expose a personal leave reason to the backup.
+    const selectedTeam=state.currentTeamId;
+    api('users.php').then(data=>{
+      const select=form.querySelector('#leave-backup');
+      if (!select || state.currentView!=='time-off' || selectedTeam!==state.currentTeamId) return;
+      const colleagues=(data.users||[]).filter(u=>Number(u.id)!==Number(state.user.id)
+        && (u.team_id===undefined || u.team_id===null || Number(u.team_id)===Number(selectedTeam))
+        && (u.is_active===undefined || Boolean(Number(u.is_active))));
+      select.innerHTML='<option value="">No coverage requested</option>'+colleagues.map(u=>`<option value="${Number(u.id)}">${esc(u.name)}</option>`).join('');
+    }).catch(()=>{ /* Optional picker; the request form still works. */ });
+    form.querySelector('[name="start_date"]').min=new Date(Date.now()-30*86400000).toISOString().slice(0,10);
+    form.querySelector('[name="start_date"]').max=new Date(Date.now()+365*86400000).toISOString().slice(0,10);
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const data=new FormData(form);
+      const first=String(data.get('start_date')||'');
+      const last=String(data.get('end_date')||'');
+      if (!first || !last || first>last) {toast('Check the first and last dates.',true);return;}
+      const portion=String(data.get('day_portion')||'full');
+      if (portion!=='full' && first!==last) {toast('Half-day leave requires a single date.',true);return;}
+      const button=form.querySelector('button[type="submit"]');button.disabled=true;
+      try {
+        await api('time_off.php',{method:'POST',body:{action:'request',team_id:state.currentTeamId,
+          start_date:first,end_date:last,day_portion:portion,reason:String(data.get('reason')||''),
+          backup_user_id:String(data.get('backup_user_id')||'')}});
+        toast('Request submitted');form.reset();timeOffCursor=null;await loadTimeOff(false);
+      } catch (error) {toast(error.message,true);} finally {button.disabled=false;}
+    });
+    }
+    target.querySelector('#leave-scope')?.addEventListener('change', event => {
+      timeOffScope=event.target.value;timeOffCursor=null;loadTimeOff(false);
+    });
+    await loadTimeOff(false);
+  }
+  async function loadTimeOff(append) {
+    const target=document.getElementById('leave-results');
+    if (!target || state.currentView!=='time-off') return;
+    const teamId=state.currentTeamId;
+    const scope=timeOffScope;
+    const params=new URLSearchParams({team_id:String(teamId),scope});
+    if (append && timeOffCursor) params.set('before_id',String(timeOffCursor));
+    if (!append) target.innerHTML='<p>Loading requests...</p>';
+    try {
+      const data=await api('time_off.php?'+params);
+      if (state.currentView!=='time-off'||state.currentTeamId!==teamId||timeOffScope!==scope||!document.getElementById('leave-results')) return;
+      if (!append) target.innerHTML='';
+      target.querySelector('#leave-more')?.remove();
+      if (!data.requests.length && !append) { target.innerHTML='<p class="leave-empty">No requests yet.</p>'; return; }
+      const list=document.createElement('div');list.className='leave-list';
+      list.innerHTML=data.requests.map(r=>{
+        const status=String(r.status);
+        const mine=Number(r.user_id)===Number(state.user.id);
+        const canCancel=mine && (status==='pending'||status==='approved');
+        const canReview=data.can_review && !mine && status==='pending';
+        return `<article class="leave-item" data-leave-id="${Number(r.id)}">
+          <div class="leave-item-main"><strong>${esc(r.user_name)}</strong><span class="leave-status leave-${esc(status)}">${esc(status)}</span></div>
+          <p class="leave-dates">${esc(r.start_date)}${r.end_date!==r.start_date?' to '+esc(r.end_date):''}${r.day_portion==='am'?' · Morning half-day':r.day_portion==='pm'?' · Afternoon half-day':''}</p>
+          ${r.reason?`<p class="leave-note">${esc(r.reason)}</p>`:''}
+          ${r.reviewer_note?`<p class="leave-review-note">Manager note: ${esc(r.reviewer_note)}</p>`:''}
+          ${r.backup_user_id?`<p class="leave-review-note">Coverage: ${esc(r.backup_name||'Former member')} · ${esc(r.coverage_status||'pending')}</p>`:''}
+          <div class="leave-item-actions">${Number(r.backup_user_id)===Number(state.user.id) && r.coverage_status==='pending' && (status==='pending'||status==='approved')?`<button type="button" class="btn btn-ghost" data-coverage-decline="${Number(r.id)}">Decline coverage</button><button type="button" class="btn btn-primary" data-coverage-accept="${Number(r.id)}">Accept coverage</button>`:''}${canCancel?`<button type="button" class="btn btn-ghost" data-leave-cancel="${Number(r.id)}">Cancel</button>`:''}
+          ${canReview?`<button type="button" class="btn btn-ghost" data-leave-decline="${Number(r.id)}">Decline</button><button type="button" class="btn btn-primary" data-leave-approve="${Number(r.id)}">Approve</button>`:''}</div>
+        </article>`;
+      }).join('');
+      target.appendChild(list);
+      list.querySelectorAll('button[data-coverage-accept],button[data-coverage-decline]').forEach(btn=>btn.addEventListener('click',async()=>{
+        const id=Number(btn.dataset.coverageAccept||btn.dataset.coverageDecline);
+        const decision=btn.dataset.coverageAccept?'accept':'decline';
+        btn.disabled=true;
+        try {await api('time_off.php',{method:'POST',body:{team_id:teamId,action:'coverage_response',id,decision}});
+          toast('Coverage response saved');timeOffCursor=null;await loadTimeOff(false);
+        }catch(error){toast(error.message,true);btn.disabled=false;}
+      }));
+      list.querySelectorAll('button[data-leave-cancel],button[data-leave-decline],button[data-leave-approve]').forEach(btn=>{
+        btn.addEventListener('click',async()=>{
+          const id=Number(btn.dataset.leaveCancel || btn.dataset.leaveDecline || btn.dataset.leaveApprove);
+          const action=btn.dataset.leaveCancel?'cancel':'review';
+          const decision=btn.dataset.leaveApprove?'approve':'decline';
+          let reviewer_note='';
+          if (action==='cancel' && !confirm('Cancel this time-off request?')) return;
+          if (action==='review') {
+            const answer=prompt(decision==='approve'?'Optional approval note:':'Reason for declining:','');
+            if (answer===null) return;
+            reviewer_note=answer;
+          }
+          btn.disabled=true;
+          try {
+            await api('time_off.php',{method:'POST',body:{action,team_id:teamId,id,decision,reviewer_note}});
+            toast(action==='cancel'?'Request cancelled':'Request reviewed');timeOffCursor=null;await loadTimeOff(false);
+          } catch(error){toast(error.message,true);btn.disabled=false;}
+        });
+      });
+      timeOffCursor=data.next_before_id;
+      if (timeOffCursor!==null) {
+        const more=document.createElement('button');more.type='button';more.id='leave-more';more.className='btn btn-ghost';more.textContent='Load older requests';
+        more.addEventListener('click',()=>loadTimeOff(true));target.appendChild(more);
+      }
+    } catch(error) {
+      if(!append) target.innerHTML=`<p class="load-error-box" role="alert">${esc(error.message)}</p>`;
+      else toast(error.message,true);
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // AVAILABILITY & ADVISORY LEAVE BALANCES (TaskFlow 1.15).
+  // Dates are UTC; private leave reasons are never requested by the calendar.
+  // ---------------------------------------------------------------
+  let availabilityMonth = new Date().toISOString().slice(0,7);
+  let availabilityLoadId = 0;
+  let balanceYear = new Date().getUTCFullYear();
+  let balanceScope = 'team';
+  let balanceOffset = 0;
+  let balanceLoadId = 0;
+  function changeCalendarMonth(delta) {
+    const date = new Date(availabilityMonth+'-01T00:00:00Z');
+    date.setUTCMonth(date.getUTCMonth()+delta);
+    availabilityMonth=date.toISOString().slice(0,7);
+    renderAvailability();
+  }
+  async function renderAvailability() {
+    const target=document.getElementById('view-container');
+    if(!state.currentTeamId){target.innerHTML=emptyTeamState();return;}
+    target.innerHTML=`<div class="feature-intro"><h2>Team availability</h2><p>Approved absences and organization holidays, so your team can plan around who is away. Private request notes are never shown.</p></div>
+      <div class="availability-toolbar"><button type="button" class="btn btn-ghost" id="absence-prev" aria-label="Previous month">← Previous</button>
+      <label>Month <input type="month" id="absence-month" value="${esc(availabilityMonth)}"></label>
+      <button type="button" class="btn btn-ghost" id="absence-next" aria-label="Next month">Next →</button>
+      <a class="btn btn-ghost" id="absence-export" href="${esc('api/availability_export.php?'+new URLSearchParams({team_id:String(state.currentTeamId),month:availabilityMonth}))}" download>Export calendar (.ics)</a></div>
+      <section id="availability-results" class="availability-results" aria-live="polite"><p>Loading team availability…</p></section>`;
+    target.querySelector('#absence-prev').addEventListener('click',()=>changeCalendarMonth(-1));
+    target.querySelector('#absence-next').addEventListener('click',()=>changeCalendarMonth(1));
+    target.querySelector('#absence-month').addEventListener('change',ev=>{
+      if(!/^\d{4}-\d{2}$/.test(ev.target.value))return;
+      availabilityMonth=ev.target.value;renderAvailability();
+    });
+    await loadAvailability();
+  }
+  async function loadAvailability() {
+    const target=document.getElementById('availability-results');
+    if (!target)return;
+    const request=++availabilityLoadId, month=availabilityMonth, teamId=state.currentTeamId;
+    try {
+      const query=new URLSearchParams({team_id:String(teamId),month});
+      const response=await api('leave_calendar.php?'+query);
+      if(request!==availabilityLoadId || state.currentView!=='availability' || teamId!==state.currentTeamId || month!==availabilityMonth || !document.getElementById('availability-results'))return;
+      const events={};
+      const add=(date,label,kind)=>{(events[date] ||= []).push({label,kind});};
+      const last=Number(month.split('-')[1]);
+      const start=new Date(month+'-01T00:00:00Z');
+      const days=new Date(Date.UTC(start.getUTCFullYear(), last,0)).getUTCDate();
+      response.holidays.forEach(h=>add(h.holiday_date,h.title,'holiday'));
+      response.approved_leave.forEach(r=>{
+        const from=new Date(r.start_date+'T00:00:00Z'), to=new Date(r.end_date+'T00:00:00Z');
+        const left=from>start?from:start;
+        const end=new Date(Date.UTC(start.getUTCFullYear(),start.getUTCMonth(),days));
+        const right=to<end?to:end;
+        const suffix=r.day_portion==='am'?' (AM)':r.day_portion==='pm'?' (PM)':'';
+        for(let cursor=new Date(left);cursor<=right;cursor.setUTCDate(cursor.getUTCDate()+1))add(cursor.toISOString().slice(0,10),r.member_name+suffix,'absence');
+      });
+      const leading=(start.getUTCDay()+6)%7;
+      const title=new Intl.DateTimeFormat(undefined,{month:'long',year:'numeric',timeZone:'UTC'}).format(start);
+      let cells='';
+      for(let n=0;n<leading;n++)cells+='<div class="absence-blank" aria-hidden="true"></div>';
+      let count=0;
+      for(let d=1;d<=days;d++) {
+        const day=month+'-'+String(d).padStart(2,'0');
+        const entries=events[day]||[]; count+=entries.length;
+        const display=entries.slice(0,3).map(e=>`<span class="absence-tag ${e.kind==='holiday'?'absence-holiday':''}" title="${esc(e.label)}">${esc(e.label)}</span>`).join('');
+        cells+=`<div class="absence-day" data-absence-date="${esc(day)}"><time datetime="${esc(day)}">${d}</time>${display}
+          ${entries.length>3?`<details class="absence-more"><summary>+${entries.length-3} more</summary>${entries.slice(3).map(e=>`<span class="absence-tag ${e.kind==='holiday'?'absence-holiday':''}">${esc(e.label)}</span>`).join('')}</details>`:''}</div>`;
+      }
+      target.innerHTML=`<div class="absence-heading"><h3>${esc(title)}</h3><p>${count} visible leave or holiday entries</p></div>
+        ${response.truncated?'<p class="absence-warning" role="status">More than 1,000 approved requests match this month. This calendar is incomplete; contact an administrator.</p>':''}
+        <div class="absence-weekdays" aria-hidden="true">${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<span>${d}</span>`).join('')}</div>
+        <div class="absence-grid">${cells}</div>
+        <p class="absence-legend">Blue = approved time off · Gold = team holiday. Dates are in UTC; notes and pending requests are private.</p>`;
+    }catch(error){if(request===availabilityLoadId&&document.getElementById('availability-results'))target.innerHTML=`<p class="load-error-box" role="alert">${esc(error.message)}</p>`;}
+  }
+
+  async function renderLeaveBalances() {
+    const target=document.getElementById('view-container');
+    if(!state.currentTeamId){target.innerHTML=emptyTeamState();return;}
+    const canManage=iHave(['administrator','manager']);
+    if(!canManage||Number(state.user.team_id)!==Number(state.currentTeamId))balanceScope=canManage?'team':'mine';
+    const thisYear=new Date().getUTCFullYear();
+    balanceYear=Math.max(thisYear-2,Math.min(thisYear+2,balanceYear));
+    balanceOffset=0;
+    target.innerHTML=`<div class="feature-intro"><h2>Leave balances</h2><p>Understand approved time away in scheduled workdays. Annual allowances are optional and advisory; they do not block requests or approvals.</p></div>
+      <div class="availability-toolbar"><button class="btn btn-ghost" type="button" id="balance-prev">← Previous year</button>
+      <strong id="balance-year">${balanceYear}</strong><button class="btn btn-ghost" type="button" id="balance-next">Next year →</button>
+      ${canManage?`<a class="btn btn-ghost" href="${esc('api/leave_balance_export.php?'+new URLSearchParams({team_id:String(state.currentTeamId),year:String(balanceYear)}))}" download>Export leave balances (CSV)</a>`:''}
+      ${canManage?`<label>View <select id="balance-scope"><option value="team" ${balanceScope==='team'?'selected':''}>Team</option>${Number(state.user.team_id)===Number(state.currentTeamId)?`<option value="mine" ${balanceScope==='mine'?'selected':''}>Me</option>`:''}</select></label>`:''}</div>
+      <section id="balance-results" aria-live="polite"><p>Calculating leave balances…</p></section>`;
+    const changeYear=(delta)=>{const value=balanceYear+delta;if(value<thisYear-2||value>thisYear+2)return;balanceYear=value;renderLeaveBalances();};
+    target.querySelector('#balance-prev').addEventListener('click',()=>changeYear(-1));
+    target.querySelector('#balance-next').addEventListener('click',()=>changeYear(1));
+    target.querySelector('#balance-scope')?.addEventListener('change',ev=>{balanceScope=ev.target.value;balanceOffset=0;loadLeaveBalances(false);});
+    await loadLeaveBalances(false);
+  }
+  function halfDayText(units){return units===null||units===undefined?'Not set':(Number(units)/2).toFixed(1).replace(/\.0$/,'')+' days';}
+  async function loadLeaveBalances(append) {
+    const target=document.getElementById('balance-results');if(!target)return;
+    const request=++balanceLoadId, teamId=state.currentTeamId, year=balanceYear, scope=balanceScope;
+    if(!append)target.innerHTML='<p>Calculating leave balances…</p>';
+    const query=new URLSearchParams({team_id:String(teamId),year:String(year),scope,offset:String(append?balanceOffset:0)});
+    try {
+      const data=await api('leave_balances.php?'+query);
+      if(request!==balanceLoadId||state.currentView!=='leave-balances'||teamId!==state.currentTeamId||year!==balanceYear||scope!==balanceScope||!document.getElementById('balance-results'))return;
+      if(!append)target.innerHTML='';
+      target.querySelector('#balance-more')?.remove();
+      if(!data.rows.length && !append){target.innerHTML='<p class="leave-empty">No members found for this view.</p>';return;}
+      const section=document.createElement('div');section.className='balance-grid';
+      section.innerHTML=data.rows.map(r=>`<article class="balance-card" data-balance-user="${Number(r.user_id)}"><strong>${esc(r.name)}</strong>
+        <div class="balance-stats"><span><small>Approved</small><b>${esc(halfDayText(r.approved_half_days))}</b></span>
+        <span><small>Allowance</small><b>${esc(halfDayText(r.allowance_half_days))}</b></span>
+        <span><small>Remaining</small><b>${esc(halfDayText(r.remaining_half_days))}</b></span></div>
+        ${data.can_manage && scope==='team'?`<form class="balance-edit-form" data-allowance-for="${Number(r.user_id)}"><label>Annual allowance (days)
+          <input aria-label="Annual allowance for ${esc(r.name)}" type="number" name="days" min="0" max="366" step="0.5" value="${r.allowance_half_days===null?'':Number(r.allowance_half_days)/2}" placeholder="Not configured" required></label><button class="btn btn-ghost" type="submit">Save</button></form>`:''}
+      </article>`).join('');
+      target.appendChild(section);
+      section.querySelectorAll('.balance-edit-form').forEach(form=>form.addEventListener('submit',async event=>{
+        event.preventDefault();const days=Number(form.querySelector('[name="days"]').value);
+        if(!Number.isFinite(days)||days<0||days>366||Math.round(days*2)!==days*2){toast('Enter a number of days in half-day increments.',true);return;}
+        const button=form.querySelector('button');button.disabled=true;
+        try {await api('leave_balances.php',{method:'POST',body:{team_id:teamId,year,action:'set_allowance',user_id:Number(form.dataset.allowanceFor),allowance_half_days:Math.round(days*2)}});
+          toast('Annual allowance saved');balanceOffset=0;loadLeaveBalances(false);
+        } catch(error){toast(error.message,true);button.disabled=false;}
+      }));
+      balanceOffset=data.next_offset;
+      if(balanceOffset!==null){const more=document.createElement('button');more.type='button';more.id='balance-more';more.className='btn btn-ghost';more.textContent='Load more people';more.addEventListener('click',()=>loadLeaveBalances(true));target.appendChild(more);}
+      if(!append){const note=document.createElement('p');note.className='absence-legend';note.textContent='Approved time off includes future approved dates. Unscheduled days and team holidays are excluded. Balances are informational only.';target.prepend(note);}
+    }catch(error){if(!append)target.innerHTML=`<p class="load-error-box" role="alert">${esc(error.message)}</p>`;else toast(error.message,true);}
+  }
+
+  // ---------------------------------------------------------------
+  // TEAM HOLIDAYS: one-off dates; managers maintain, members can read.
+  // ---------------------------------------------------------------
+  let holidayYear = new Date().getUTCFullYear();
+  async function renderHolidays() {
+    const container=document.getElementById('view-container');
+    if (!state.currentTeamId){container.innerHTML=emptyTeamState();return;}
+    const canManage=iHave(['administrator','manager']);
+    const todayYear=new Date().getUTCFullYear();
+    holidayYear=Math.max(todayYear-2,Math.min(todayYear+2,holidayYear));
+    container.innerHTML=`<div class="feature-intro"><h2>Team holidays</h2><p>Shared non-working dates reduce planned availability only for people who normally work that day. Holiday dates and leave never deduct the same day twice.</p></div>
+      <div class="holiday-toolbar"><button type="button" class="btn btn-ghost" id="holiday-prev">← Previous</button><strong id="holiday-year">${holidayYear}</strong><button type="button" class="btn btn-ghost" id="holiday-next">Next →</button></div>
+      ${canManage?`<form id="holiday-add-form" class="holiday-add-form"><label>Date <input type="date" name="holiday_date" required></label><label>Holiday name <input type="text" name="title" maxlength="100" required placeholder="e.g. Organization holiday"></label><button type="submit" class="btn btn-primary">Add holiday</button></form>`:''}
+      <section class="holiday-panel" aria-label="Team holiday calendar"><div id="holiday-results" aria-live="polite"><p>Loading holidays...</p></div></section>`;
+    const changeYear=(delta)=>{const next=holidayYear+delta;if(next<todayYear-2||next>todayYear+2)return;holidayYear=next;renderHolidays();};
+    container.querySelector('#holiday-prev').addEventListener('click',()=>changeYear(-1));
+    container.querySelector('#holiday-next').addEventListener('click',()=>changeYear(1));
+    container.querySelector('#holiday-add-form')?.addEventListener('submit',async ev=>{
+      ev.preventDefault();const form=ev.currentTarget;const body=new FormData(form);
+      const date=String(body.get('holiday_date')||'');
+      if(!date.startsWith(String(holidayYear)+'-')){toast('Select a date in the displayed year.',true);return;}
+      const btn=form.querySelector('[type="submit"]');btn.disabled=true;
+      try{
+        await api('holidays.php',{method:'POST',body:{action:'add',team_id:state.currentTeamId,holiday_date:date,title:String(body.get('title')||'')}});
+        form.reset();toast('Holiday saved');await loadHolidays();
+      }catch(error){toast(error.message,true);}finally{btn.disabled=false;}
+    });
+    await loadHolidays();
+  }
+  async function loadHolidays() {
+    const target=document.getElementById('holiday-results');
+    if(!target||state.currentView!=='holidays')return;
+    const teamId=state.currentTeamId;const year=holidayYear;
+    target.innerHTML='<p>Loading holidays...</p>';
+    try{
+      const data=await api('holidays.php?'+new URLSearchParams({team_id:String(teamId),year:String(year)}));
+      if(state.currentView!=='holidays'||state.currentTeamId!==teamId||holidayYear!==year||!document.getElementById('holiday-results'))return;
+      if(!data.holidays.length){target.innerHTML='<p class="leave-empty">No holidays recorded for this year.</p>';return;}
+      target.innerHTML='<div class="holiday-list">'+data.holidays.map(row=>`<article class="holiday-row"><div><strong>${esc(row.title)}</strong><p>${esc(row.holiday_date)}</p></div>${data.can_manage?`<button type="button" class="btn btn-ghost" data-holiday-delete="${Number(row.id)}">Remove</button>`:''}</article>`).join('')+'</div>';
+      target.querySelectorAll('[data-holiday-delete]').forEach(button=>button.addEventListener('click',async()=>{
+        if(!confirm('Remove this team holiday?'))return;
+        button.disabled=true;
+        try{await api('holidays.php',{method:'POST',body:{action:'delete',team_id:teamId,id:Number(button.dataset.holidayDelete)}});toast('Holiday removed');await loadHolidays();}
+        catch(error){toast(error.message,true);button.disabled=false;}
+      }));
+    }catch(error){target.innerHTML='<p class="load-error-box" role="alert">'+esc(error.message)+'</p>';}
+  }
+
+  // ---------------------------------------------------------------
   // PERSONAL WORK: user's own tasks with server-side team boundaries.
   // ---------------------------------------------------------------
   let myWorkCursor = null;
   async function renderMyWork() {
     myWorkCursor = null;
     const container = document.getElementById('view-container');
-    container.innerHTML = `<div class="feature-intro"><h2>Your work, without the noise</h2><p>Tasks you created or were assigned to. Past-team work stays private.</p></div>
-      <form class="search-form" id="my-work-filters">
+    const firstName = String(state.user?.name || 'there').trim().split(/\s+/)[0];
+    const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
+    const dateLabel = new Intl.DateTimeFormat(undefined,{weekday:'long',month:'long',day:'numeric'}).format(new Date());
+    container.innerHTML = `<section class="work-hero" aria-labelledby="work-greeting">
+      <div class="work-hero-main"><div class="work-eyebrow"><span class="work-hero-dot"></span> YOUR PERSONAL WORKSPACE <span class="work-eyebrow-separator">/</span> ${esc(dateLabel)}</div>
+      <h2 id="work-greeting">${greeting}, <em>${esc(firstName)}.</em></h2>
+      <p>Keep the important work in sight. Everything else can wait.</p>
+      <div class="focus-shortcuts" role="group" aria-label="Quick filters"><button type="button" data-work-filter="overdue">Overdue tasks</button><button type="button" data-work-filter="today">Due today</button><button type="button" data-work-filter="week">This week</button><button type="button" data-work-filter="favorites">Starred</button></div>
+      </div><div class="work-hero-illustration" aria-hidden="true"><span class="hero-ring ring-one"></span><span class="hero-ring ring-two"></span><div class="hero-list-icon"><span></span><span></span><span></span></div><div class="hero-tick">&#10003;</div></div>
+      </section>
+      <section class="work-results-section"><div class="work-section-head"><div><span class="section-kicker">YOUR QUEUE</span><h3>Work that needs you</h3></div><span class="work-list-hint">Choose a task to view its details</span></div>
+      <form class="search-form" id="my-work-filters" aria-label="Filter your work">
         <select id="my-work-mode" aria-label="My work type"><option value="all">Created or assigned</option><option value="assigned">Assigned to me</option><option value="created">Created by me</option><option value="favorites">Starred tasks</option></select>
         <select id="my-work-due" aria-label="Due date"><option value="all">Any due date</option><option value="overdue">Overdue</option><option value="today">Due today</option><option value="week">Next 7 days</option><option value="upcoming">Upcoming</option><option value="none">Without due date</option></select>
         <select id="my-work-status" aria-label="Completion"><option value="open">Open tasks</option><option value="done">Completed</option><option value="all">All statuses</option></select>
-      </form><div class="search-results" id="my-work-results" aria-live="polite"></div>`;
+      </form><div class="search-results" id="my-work-results" aria-live="polite"></div></section>`;
+    container.querySelectorAll('[data-work-filter]').forEach(button => button.addEventListener('click',()=>{
+      const filter=button.dataset.workFilter;
+      const mode=document.getElementById('my-work-mode'), due=document.getElementById('my-work-due');
+      if(filter==='favorites'){mode.value='favorites';due.value='all';}
+      else {mode.value='all';due.value=filter;}
+      myWorkCursor=null;
+      container.querySelectorAll('[data-work-filter]').forEach(el=>el.setAttribute('aria-pressed',String(el===button)));
+      loadMyWork();
+    }));
     container.querySelectorAll('#my-work-filters select').forEach(el => el.addEventListener('change', () => { myWorkCursor = null; loadMyWork(); }));
     await loadMyWork();
   }
@@ -3435,7 +4269,8 @@
 
   async function renderUsersAdmin() {
     const container = document.getElementById('view-container');
-    document.getElementById('topbar-actions').innerHTML = `<button class="btn btn-primary" id="new-user-btn">+ New account</button>`;
+    document.getElementById('topbar-actions').innerHTML = `<button class="btn btn-primary" id="invite-user-btn">+ Invite person</button> <button class="btn btn-ghost" id="new-user-btn">Create directly</button>`;
+    document.getElementById('invite-user-btn').addEventListener('click', openInvitePrompt);
     document.getElementById('new-user-btn').addEventListener('click', openNewUserPrompt);
 
     container.innerHTML = '<p>Loading…</p>';
@@ -3500,6 +4335,79 @@
     container.querySelectorAll('.edit-user-btn').forEach(btn => {
       btn.addEventListener('click', () => openEditUserPrompt(Number(btn.dataset.user), data.users));
     });
+    loadInvitationManagement(container);
+  }
+
+  function showInvitationLink(url, delivery = 'copy') {
+    const deliveryNote = delivery === 'email_queued' ? 'Invitation email is queued for delivery. Make sure your mail worker is running. You can also copy the private link now.' : delivery === 'email_sent' ? 'Invitation email was handed to the SMTP server. You can also copy the link as a backup.' : delivery === 'email_failed' ? 'SMTP could not send this invitation. Copy the link and deliver it privately instead.' : 'Copy and deliver the link privately.';
+    promptModal('Invitation created', `<p class="settings-note">${esc(deliveryNote)} This link works once, expires after 72 hours, and cannot be shown again after closing this dialog.</p>
+      <label for="invite-link-value">Secure invitation link</label>
+      <input id="invite-link-value" aria-label="Secure invitation link" readonly style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;" value="${esc(url)}">
+      <button type="button" class="btn btn-ghost" id="copy-invite-link" style="margin-top:10px;">Copy link</button>`, async () => {});
+    const input = document.getElementById('invite-link-value');
+    input.focus(); input.select();
+    document.getElementById('copy-invite-link').addEventListener('click', async () => {
+      try {
+        if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(input.value);
+        else { input.select(); if (!document.execCommand('copy')) throw new Error('Copy not available'); }
+        toast('Invitation link copied');
+      } catch (_) { input.select(); toast('Select and copy the invitation link.', true); }
+    });
+  }
+
+  async function openInvitePrompt(previous = null) {
+    const teamOptions = await teamOptionsHtml(previous?.team_id ? Number(previous.team_id) : null);
+    promptModal('Invite a teammate', `
+      <div class="field-group" style="margin-bottom:9px;"><label for="invite-name">Full name</label><input id="invite-name" maxlength="100" autocomplete="off" value="${esc(previous?.name || '')}" placeholder="Full name" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;"></div>
+      <div class="field-group" style="margin-bottom:9px;"><label for="invite-email">Email</label><input id="invite-email" type="email" maxlength="190" autocomplete="off" value="${esc(previous?.email || '')}" placeholder="name@organization.org" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;"></div>
+      <div class="field-group" style="margin-bottom:9px;"><label>Roles</label><div class="role-checkbox-group">${roleCheckboxesHtml(previous?.roles || ['member'])}</div></div>
+      <label for="invite-team">Team</label><select id="invite-team" style="width:100%;padding:9px;border:1px solid var(--border);border-radius:8px;"><option value="">No team</option>${teamOptions}</select>
+      <label class="settings-note" style="display:flex;gap:9px;align-items:center;margin-top:12px;"><input type="checkbox" id="invite-send-email"> Email invitation using configured SMTP</label><p class="settings-note">The person sets their own password. If SMTP is not configured, leave email delivery unchecked and copy the link instead.</p>
+    `, async () => {
+      const body = {
+        action:'create',name:document.getElementById('invite-name').value.trim(),email:document.getElementById('invite-email').value.trim(),
+        roles:[...document.querySelectorAll('.u-role-check:checked')].map(x=>x.value),
+        team_id:document.getElementById('invite-team').value || null,
+        delivery:document.getElementById('invite-send-email').checked ? 'email' : 'copy'
+      };
+      // The generic modal dismisses after this callback; show the secret in a follow-up dialog.
+      const result = await api('invitations.php', {method:'POST',body});
+      setTimeout(() => { renderUsersAdmin(); showInvitationLink(result.invite_url, result.delivery || 'copy'); }, 0);
+    });
+  }
+
+  async function loadInvitationManagement(container) {
+    if (!container.isConnected) return;
+    const panel = document.createElement('section');
+    panel.className = 'invitation-panel';
+    panel.setAttribute('aria-label', 'Account invitations');
+    panel.innerHTML = `<h3>Invitations</h3><p class="settings-note">Links expire after 72 hours and are shown only once when created.</p><p class="settings-note">Loading invitations…</p>`;
+    container.appendChild(panel);
+    try {
+      const data = await api('invitations.php');
+      if (!panel.isConnected) return;
+      const rows = data.invitations || [];
+      panel.innerHTML = `<h3>Invitations</h3><p class="settings-note">Pending links can be revoked here. Secrets are not recoverable; create a new invitation to replace a lost link.</p>` +
+        (rows.length ? rows.map(x => `<div class="member-row invite-row">
+          <div class="member-info"><div><strong>${esc(x.name)}</strong> <span class="role-badge">${esc(x.status)}</span>
+          <div style="font-size:12px;color:var(--text-faint);">${esc(x.email)} · ${esc((x.roles||[]).join(', '))} · ${esc(x.team_name || 'No team')} · expires ${esc(x.expires_at)}</div></div></div>
+          ${x.status==='pending'?`<button class="btn btn-ghost invite-revoke" type="button" data-invite-id="${Number(x.id)}">Revoke</button>`:''}
+          ${x.status!=='accepted'?`<button class="btn btn-ghost invite-reissue" type="button" data-invite-id="${Number(x.id)}">Replace link</button>`:''}
+        </div>`).join('') : '<p class="settings-note">No invitations created yet.</p>');
+      panel.querySelectorAll('.invite-reissue').forEach(btn => btn.addEventListener('click', () => {
+        const earlier = rows.find(x => Number(x.id) === Number(btn.dataset.inviteId));
+        if (earlier) openInvitePrompt(earlier);
+      }));
+      panel.querySelectorAll('.invite-revoke').forEach(btn => btn.addEventListener('click',async () => {
+        if (!confirm('Revoke this invitation? Its link will stop working.')) return;
+        btn.disabled = true;
+        try {
+          await api('invitations.php',{method:'POST',body:{action:'revoke',id:Number(btn.dataset.inviteId)}});
+          toast('Invitation revoked');
+          renderUsersAdmin();
+        } catch(e) { btn.disabled=false; toast(e.message,true); }
+      }));
+    } catch (e) { panel.innerHTML = `<h3>Invitations</h3><p class="load-error-box">${esc(e.message)}</p>`; }
   }
 
   async function teamOptionsHtml(selectedId) {
@@ -3525,7 +4433,7 @@
     promptModal('New account', `
       <div class="field-group" style="margin-bottom:8px;"><input id="u-name" placeholder="Full name" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"></div>
       <div class="field-group" style="margin-bottom:8px;"><input id="u-email" type="email" placeholder="Email" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"></div>
-      <div class="field-group" style="margin-bottom:12px;"><input id="u-pass" type="text" placeholder="Temporary password (min 8 chars)" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"></div>
+      <div class="field-group" style="margin-bottom:12px;"><input id="u-pass" type="password" autocomplete="new-password" placeholder="Temporary password (min 12 bytes)" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"></div>
       <div class="field-group" style="margin-bottom:8px;">
         <label style="display:block;margin-bottom:6px;">Roles (select one or more — e.g. Administrator AND Manager)</label>
         <div class="role-checkbox-group">${roleCheckboxesHtml(['member'])}</div>
@@ -3559,7 +4467,7 @@
       <select id="u-team" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;margin-bottom:8px;">
         <option value="">No team</option>${teamOptions}
       </select>
-      <input id="u-newpass" type="text" placeholder="Reset password (leave blank to keep current)" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;">
+      <input id="u-newpass" type="password" autocomplete="new-password" placeholder="Reset password (leave blank to keep current)" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;">
     `, async () => {
       const roles = Array.from(document.querySelectorAll('.u-role-check:checked')).map(cb => cb.value);
       const team_id = document.getElementById('u-team').value || null;

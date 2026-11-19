@@ -25,10 +25,18 @@ if (!(int) $me['must_change_password'] && !password_verify($current, $hash)) {
 assert_password_policy($new);
 
 $newHash = password_hash($new, PASSWORD_BCRYPT);
-$pdo->prepare('UPDATE users SET password_hash = ?, must_change_password = 0, auth_version=auth_version+1 WHERE id = ?')
-    ->execute([$newHash, $me['id']]);
-
-$pdo->prepare('DELETE FROM remember_tokens WHERE user_id = ?')->execute([$me['id']]);
+$pdo->beginTransaction();
+try {
+    $pdo->prepare('UPDATE users SET password_hash = ?, must_change_password = 0, auth_version=auth_version+1 WHERE id = ?')
+        ->execute([$newHash, $me['id']]);
+    $pdo->prepare('DELETE FROM remember_tokens WHERE user_id = ?')->execute([$me['id']]);
+    $pdo->prepare('UPDATE password_reset_tokens SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL')->execute([$me['id']]);
+    $pdo->commit();
+} catch (Throwable $e) {
+    $pdo->rollBack();
+    error_log('Password change transaction failed: ' . get_class($e));
+    json_error('Could not update password.', 500);
+}
 clear_remember_cookie();
 $_SESSION['auth_version'] = (int) $me['auth_version'] + 1;
 unset($_SESSION['csrf_token']);

@@ -7,7 +7,7 @@ html='<!DOCTYPE html>'+ (root/'index.php').read_text().split('<!DOCTYPE html>',1
 html=re.sub(r'<\?php.*?\?>','',html,flags=re.S)
 html=re.sub(r'<link rel="stylesheet"[^>]*>','',html)
 html=re.sub(r'<script src="[^\"]*">\s*</script>','',html)
-style=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()
+style=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()
 script=(root/'assets/js/app.js').read_text()
 icons=(root/'assets/img/icons.svg').read_text()
 logo='data:image/png;base64,'+base64.b64encode((root/'assets/img/taskflow-logo-192.png').read_bytes()).decode()

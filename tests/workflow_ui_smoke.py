@@ -16,7 +16,7 @@ with sync_playwright() as p:
     page.on('pageerror', lambda e: errors.append(str(e)))
     page.on('dialog', lambda dialog: dialog.accept())
     page.set_content(html)
-    page.add_style_tag(content=root.joinpath('assets/css/style.css').read_text())
+    page.add_style_tag(content=root.joinpath('assets/css/style.css').read_text() + '\n' + root.joinpath('assets/css/design-system.css').read_text() + '\n' + root.joinpath('assets/css/ui-overhaul.css').read_text() + '\n' + root.joinpath('assets/css/theme-accessibility.css').read_text() + '\n' + root.joinpath('assets/css/theme-palettes.css').read_text())
     page.evaluate('''() => {
       window.calls=[];
       window.blocks=[{id:33,title:'Run quality assurance',status:'in_progress'}];

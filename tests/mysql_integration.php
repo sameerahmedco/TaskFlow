@@ -371,5 +371,249 @@ $assert($duplicateKeyBlocked,'random attachment storage key has unique DB constr
 $pdo->prepare('DELETE FROM tasks WHERE id=?')->execute([$monthlySource]);
 $st=$pdo->prepare('SELECT COUNT(*) FROM task_attachments WHERE id=?');$st->execute([$attId]);
 $assert((int)$st->fetchColumn()===0,'task deletion cascades file metadata; disk cleanup remains a CLI operation');
+// 1.11.0: single-use employee invitation schema, hashed token and team FK.
+$token=bin2hex(random_bytes(32));
+$inviteHash=hash('sha256',$token);
+$pdo->prepare("INSERT INTO user_invitations(email,name,roles_csv,team_id,token_hash,created_by,expires_at) VALUES (?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 72 HOUR))")
+    ->execute(['newperson@example.test','New Person','member',$teamId,$inviteHash,$id]);
+$invId=(int)$pdo->lastInsertId();
+$invite=$pdo->prepare('SELECT * FROM user_invitations WHERE token_hash=? FOR UPDATE');
+$pdo->beginTransaction();$invite->execute([$inviteHash]);$row=$invite->fetch();
+$assert($row && $row['email']==='newperson@example.test','hashed invite token lookup works');
+$assert(!str_contains(json_encode($row),$token),'plaintext invite secret never stored in database');
+$pdo->prepare('UPDATE user_invitations SET revoked_at=UTC_TIMESTAMP() WHERE id=?')->execute([$invId]);
+$pdo->commit();
+$st=$pdo->prepare('SELECT revoked_at FROM user_invitations WHERE id=?');$st->execute([$invId]);
+$assert($st->fetchColumn()!==null,'invite revocation persisted');
+$duplicateHashBlocked=false;
+try {
+ $pdo->prepare("INSERT INTO user_invitations(email,name,roles_csv,team_id,token_hash,created_by,expires_at) VALUES (?,?,?,?,?,?,DATE_ADD(UTC_TIMESTAMP(), INTERVAL 72 HOUR))")
+    ->execute(['other@example.test','Other','member',$teamId,$inviteHash,$id]);
+} catch(PDOException $e){$duplicateHashBlocked=($e->getCode()==='23000');}
+$assert($duplicateHashBlocked,'database rejects duplicate invitation hashes');
+$foreign=$pdo->prepare("SELECT COUNT(*) FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='user_invitations' AND COLUMN_NAME='team_id' AND REFERENCED_TABLE_NAME='teams'");
+$foreign->execute();
+$assert((int)$foreign->fetchColumn()===1,'invite team foreign key exists');
+// 1.12.0: recovery secrets are hashed, unique and redeemable only once.
+$resetToken=bin2hex(random_bytes(32));
+$resetHash=hash('sha256',$resetToken);
+$pdo->prepare('INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES (?,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 30 MINUTE))')
+    ->execute([$id,$resetHash]);
+$resetId=(int)$pdo->lastInsertId();
+$pdo->beginTransaction();
+$resetRow=$pdo->prepare('SELECT id,user_id FROM password_reset_tokens WHERE token_hash=? AND used_at IS NULL AND expires_at>UTC_TIMESTAMP() FOR UPDATE');
+$resetRow->execute([$resetHash]);
+$assert((int)$resetRow->fetchColumn()===$resetId, 'valid recovery token is found by hash under row lock');
+$pdo->prepare('UPDATE password_reset_tokens SET used_at=UTC_TIMESTAMP() WHERE id=?')->execute([$resetId]);
+$pdo->commit();
+$resetRow->execute([$resetHash]);
+$assert($resetRow->fetchColumn()===false,'used recovery token cannot be replayed');
+$duplicateResetBlocked=false;
+try {$pdo->prepare('INSERT INTO password_reset_tokens(user_id,token_hash,expires_at) VALUES (?,?,DATE_ADD(UTC_TIMESTAMP(),INTERVAL 30 MINUTE))')->execute([$id,$resetHash]);}
+catch(PDOException $e) {$duplicateResetBlocked=$e->getCode()==='23000';}
+$assert($duplicateResetBlocked,'database rejects duplicate password reset token hashes');
+$st=$pdo->prepare('INSERT INTO password_reset_requests(ip_hash,email_hash) VALUES (?,?)');
+$st->execute([hash('sha256','test-ip'),hash('sha256','test-email')]);
+$assert((int)$pdo->query('SELECT COUNT(*) FROM password_reset_requests')->fetchColumn()===1,'pseudonymous reset throttle table available');
+// 1.13.0: approved team leave, review state and workload-related indexes.
+require_once __DIR__ . '/../includes/time_off.php';
+$st=$pdo->prepare('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?');
+$st->execute(['time_off_requests']);
+$assert((int)$st->fetchColumn()===1, 'time off requests table exists for fresh installations');
+$pdo->prepare('INSERT INTO time_off_requests(team_id,user_id,start_date,end_date,reason) VALUES (?,?,?,?,?)')
+    ->execute([$teamId,$memberId,'2026-11-16','2026-11-20','Integration leave']);
+$leaveId=(int)$pdo->lastInsertId();
+$st=$pdo->prepare('SELECT status FROM time_off_requests WHERE id=? AND user_id=? AND team_id=?');
+$st->execute([$leaveId,$memberId,$teamId]);
+$assert($st->fetchColumn()==='pending', 'request starts pending and is team scoped');
+$st->execute([$leaveId,$memberId,$otherTeamId]);
+$assert($st->fetchColumn()===false, 'other team cannot retrieve request with scoped query');
+$pdo->prepare("UPDATE time_off_requests SET status='approved',reviewed_by=?,reviewed_at=UTC_TIMESTAMP() WHERE id=?")
+    ->execute([$id,$leaveId]);
+$st=$pdo->prepare("SELECT start_date,end_date FROM time_off_requests WHERE user_id=? AND status='approved'");
+$st->execute([$memberId]);
+$leaveWeekdays=taskflow_time_off_weekdays($st->fetchAll(),'2026-11-16','2026-11-22');
+$assert($leaveWeekdays===5, 'approved leave reduces five weekday slots');
+$assert(taskflow_time_off_effective_capacity(2400,$leaveWeekdays)===0, 'full approved week yields zero available minutes');
+$invalidDateBlocked=false;
+try { $pdo->prepare('INSERT INTO time_off_requests(team_id,user_id,start_date,end_date) VALUES (?,?,?,?)')
+    ->execute([$teamId,$memberId,'2026-11-22','2026-11-18']); }
+catch(PDOException $e){$invalidDateBlocked=true;}
+$assert($invalidDateBlocked, 'DB check rejects reversed leave date range');
+// Use a distinct disposable member for deletion testing; the main member remains
+// active for the 1.14+ scheduling and balance tests below.
+$pdo->prepare('INSERT INTO users (name,email,password_hash,role,team_id,is_active,must_change_password) VALUES (?,?,?,?,?,1,0)')
+  ->execute(['Disposable Member','disposable@example.test',password_hash('disposable strong passphrase',PASSWORD_DEFAULT),'member',$teamId]);
+$deletedMemberId=(int)$pdo->lastInsertId();
+$pdo->prepare('INSERT INTO time_off_requests (team_id,user_id,start_date,end_date) VALUES (?,?,?,?)')
+  ->execute([$teamId,$deletedMemberId,'2026-11-16','2026-11-17']);
+$deletedLeaveId=(int)$pdo->lastInsertId();
+$pdo->prepare('DELETE FROM users WHERE id=?')->execute([$deletedMemberId]);
+$st=$pdo->prepare('SELECT COUNT(*) FROM time_off_requests WHERE id=?');$st->execute([$deletedLeaveId]);
+$assert((int)$st->fetchColumn()===0, 'deleted user cascades their leave requests');
+
 // Test DB is ephemeral and discarded by CI; no cleanup of schema is performed here.
-echo 'MySQL schema, MFA, dependencies, recurrence, worklogs, timers, approvals, workloads milestones, portfolio, saved views, project updates, task watch and 1.10 file/recurrence/audit checks passed.' . PHP_EOL;
+// TaskFlow 1.14: custom working days, partial leave and unique team holidays.
+require_once __DIR__ . '/../includes/scheduling.php';
+$pdo->prepare('UPDATE user_workload_capacity SET workdays_mask=65 WHERE user_id=?')->execute([$memberId]);
+$st=$pdo->prepare('SELECT workdays_mask FROM user_workload_capacity WHERE user_id=?');
+$st->execute([$memberId]);
+$assert((int)$st->fetchColumn()===65, 'custom Monday/Sunday schedule persisted');
+$badScheduleBlocked=false;
+try {$pdo->prepare('UPDATE user_workload_capacity SET workdays_mask=0 WHERE user_id=?')->execute([$memberId]);}
+catch(PDOException){$badScheduleBlocked=true;}
+$assert($badScheduleBlocked,'database rejects empty workday schedules');
+$pdo->prepare("INSERT INTO time_off_requests(team_id,user_id,start_date,end_date,day_portion) VALUES (?,?,?,?,'am')")
+    ->execute([$teamId,$memberId,'2026-11-23','2026-11-23']);
+$badPartBlocked=false;
+try {$pdo->prepare("INSERT INTO time_off_requests(team_id,user_id,start_date,end_date,day_portion) VALUES (?,?,?,?,'pm')")
+    ->execute([$teamId,$memberId,'2026-11-24','2026-11-25']);}
+catch(PDOException){$badPartBlocked=true;}
+$assert($badPartBlocked,'database rejects multi-day half leave');
+$pdo->prepare('INSERT INTO team_holidays(team_id,holiday_date,title,created_by) VALUES (?,?,?,?)')
+    ->execute([$teamId,'2026-11-22','Example holiday',$id]);
+$holidayConflict=false;
+try {$pdo->prepare('INSERT INTO team_holidays(team_id,holiday_date,title,created_by) VALUES (?,?,?,?)')
+    ->execute([$teamId,'2026-11-22','Duplicate',$id]);}
+catch(PDOException){$holidayConflict=true;}
+$assert($holidayConflict,'duplicate team holiday rejected');
+$assert(taskflow_schedule_availability(1400,65,[],['2026-11-22'],'2026-11-16','2026-11-22')['effective_capacity_minutes']===700,
+    'custom schedule holiday calculation');
+
+// 1.15: optional, team-scoped advisory leave balances and constraints.
+require_once __DIR__.'/../includes/leave_balances.php';
+$pdo->prepare('INSERT INTO leave_allowances(team_id,user_id,leave_year,allowance_half_days,updated_by) VALUES (?,?,?,?,?)')
+   ->execute([$teamId,$memberId,2026,40,$id]);
+$st=$pdo->prepare('SELECT allowance_half_days FROM leave_allowances WHERE team_id=? AND user_id=? AND leave_year=?');
+$st->execute([$teamId,$memberId,2026]);
+$assert((int)$st->fetchColumn()===40,'annual allowance stored for matching team/member/year');
+$st->execute([$otherTeamId,$memberId,2026]);
+$assert($st->fetchColumn()===false,'other team cannot retrieve an allowance with scoped lookup');
+$uniqueBlocked=false;
+try{$pdo->prepare('INSERT INTO leave_allowances(team_id,user_id,leave_year,allowance_half_days) VALUES (?,?,?,?)')
+    ->execute([$teamId,$memberId,2026,12]);}catch(PDOException){$uniqueBlocked=true;}
+$assert($uniqueBlocked,'duplicate annual team/member allowance blocked');
+$invalidBlocked=false;
+try{$pdo->prepare('INSERT INTO leave_allowances(team_id,user_id,leave_year,allowance_half_days) VALUES (?,?,?,?)')
+    ->execute([$teamId,$memberId,2027,999]);}catch(PDOException){$invalidBlocked=true;}
+$assert($invalidBlocked,'MySQL enforces allowance half-day maximum');
+$assert(taskflow_annual_leave_units(2026,31,[['start_date'=>'2026-11-16','end_date'=>'2026-11-20','day_portion'=>'full']],['2026-11-18'])===8,
+    'annual approved leave excludes holidays');
+// 1.16.0: one coverage colleague per leave request, team-scoped lookup, FK cascade.
+require_once __DIR__.'/../includes/leave_coverage.php';
+$pdo->prepare('INSERT INTO users (name,email,password_hash,role,team_id,is_active,must_change_password) VALUES (?,?,?,?,?,1,0)')
+    ->execute(['Coverage Colleague','coverage@example.test',password_hash('safe coverage passphrase',PASSWORD_DEFAULT),'member',$teamId]);
+$coverageId=(int)$pdo->lastInsertId();
+$pdo->prepare('INSERT INTO leave_coverage(request_id,team_id,backup_user_id) VALUES (?,?,?)')
+    ->execute([$leaveId,$teamId,$coverageId]);
+$st=$pdo->prepare('SELECT status FROM leave_coverage WHERE request_id=? AND team_id=? AND backup_user_id=?');
+$st->execute([$leaveId,$teamId,$coverageId]);
+$assert($st->fetchColumn()==='pending','leave coverage awaits acceptance');
+$st->execute([$leaveId,$otherTeamId,$coverageId]);
+$assert($st->fetchColumn()===false,'coverage cannot be fetched under another team');
+$assert(taskflow_coverage_can_respond($coverageId,$coverageId,'pending','approved'),'designated colleague may respond');
+$assert(!taskflow_coverage_can_respond($memberId,$coverageId,'pending','approved'),'requester cannot impersonate backup');
+$pdo->prepare("UPDATE leave_coverage SET status='accepted',responded_at=UTC_TIMESTAMP() WHERE request_id=?")
+    ->execute([$leaveId]);
+$st=$pdo->prepare('SELECT status FROM leave_coverage WHERE request_id=?');$st->execute([$leaveId]);
+$assert($st->fetchColumn()==='accepted','acknowledgement persisted');
+$duplicateBlocked=false;
+try{$pdo->prepare('INSERT INTO leave_coverage(request_id,team_id,backup_user_id) VALUES (?,?,?)')
+    ->execute([$leaveId,$teamId,$coverageId]);}catch(PDOException){$duplicateBlocked=true;}
+$assert($duplicateBlocked,'duplicate coverage for a request blocked');
+$invalidBackupBlocked=false;
+try{$pdo->prepare('INSERT INTO leave_coverage(request_id,team_id,backup_user_id) VALUES (?,?,?)')
+    ->execute([$deletedLeaveId,$teamId,$coverageId]);}catch(PDOException){$invalidBackupBlocked=true;}
+$assert($invalidBackupBlocked,'deleted leave request cannot be covered');
+// 1.17.0: team announcements and per-member read / acknowledge receipts.
+$pdo->prepare('INSERT INTO team_announcements(team_id,author_id,author_name,title,message,requires_ack,is_pinned)
+     VALUES (?,?,?,?,?,1,1)')->execute([$teamId,$id,'Test Admin','Schedule changes','Please acknowledge the update.']);
+$noticeId=(int)$pdo->lastInsertId();
+$st=$pdo->prepare('SELECT id FROM team_announcements WHERE id=? AND team_id=?');
+$st->execute([$noticeId,$teamId]);
+$assert((int)$st->fetchColumn()===$noticeId,'announcement is visible in owning team');
+$st->execute([$noticeId,$otherTeamId]);
+$assert($st->fetchColumn()===false,'announcement is not visible under another team scope');
+$pdo->prepare('INSERT INTO team_announcement_receipts(announcement_id,user_id,acknowledged_at) VALUES (?,?,UTC_TIMESTAMP())')
+    ->execute([$noticeId,$memberId]);
+$duplicateBlocked=false;
+try{$pdo->prepare('INSERT INTO team_announcement_receipts(announcement_id,user_id) VALUES (?,?)')->execute([$noticeId,$memberId]);}
+catch(PDOException $e){$duplicateBlocked=$e->getCode()==='23000';}
+$assert($duplicateBlocked,'database prevents duplicate per-user read receipts');
+$st=$pdo->prepare('SELECT acknowledged_at FROM team_announcement_receipts WHERE announcement_id=? AND user_id=?');
+$st->execute([$noticeId,$memberId]);
+$assert($st->fetchColumn()!==false,'acknowledgement timestamp is durable');
+$notFound=false;
+try{$pdo->prepare('INSERT INTO team_announcements(team_id,author_name,title,message) VALUES (?,?,?,?)')
+  ->execute([999999,'Test Admin','Broken team','No such team']);}
+catch(PDOException $e){$notFound=$e->getCode()==='23000';}
+$assert($notFound,'team foreign key rejects phantom announcement teams');
+$pdo->prepare('DELETE FROM team_announcements WHERE id=?')->execute([$noticeId]);
+$st=$pdo->prepare('SELECT COUNT(*) FROM team_announcement_receipts WHERE announcement_id=?');$st->execute([$noticeId]);
+$assert((int)$st->fetchColumn()===0,'deleting announcements cascades associated receipts');
+// 1.18.0: risk register, team/list FK, optimistic updates, scoped aggregate.
+require_once __DIR__.'/../includes/project_risks.php';
+$pdo->prepare('INSERT INTO lists(team_id,name) VALUES (?,?)')->execute([$teamId,'Risk register test project']);
+$riskListId=(int)$pdo->lastInsertId();
+$riskInsert=$pdo->prepare('INSERT INTO project_risks (team_id,list_id,reported_by,reported_name,kind,severity,status,title,description,mitigation,owner_id)
+   VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+$riskInsert->execute([$teamId,$riskListId,$id,'Test Admin','risk','critical','open','Delivery risk','Dependency may slip.','Coordinate with supplier.',$memberId]);
+$riskId=(int)$pdo->lastInsertId();
+$invalidTeam=false;
+try{$riskInsert->execute([$otherTeamId,$riskListId,$id,'Test Admin','issue','high','open','Bad reference','Wrong team list link.','',null]);}
+catch(PDOException $e){$invalidTeam=$e->getCode()==='23000';}
+$assert($invalidTeam,'composite FK prevents cross-team project-risk associations');
+$riskLookup=$pdo->prepare('SELECT id FROM project_risks WHERE id=? AND team_id=?');
+$riskLookup->execute([$riskId,$otherTeamId]);
+$assert($riskLookup->fetchColumn()===false,'risk records invisible under a different team filter');
+$riskLookup->execute([$riskId,$teamId]);
+$assert((int)$riskLookup->fetchColumn()===$riskId,'risk visible under owning team');
+$pdo->prepare("UPDATE project_risks SET status='mitigating',version=version+1 WHERE id=? AND version=1")
+  ->execute([$riskId]);
+$stale=$pdo->prepare("UPDATE project_risks SET status='resolved',version=version+1 WHERE id=? AND version=1");
+$stale->execute([$riskId]);
+$assert($stale->rowCount()===0,'stale optimistic update cannot overwrite newer risk edits');
+$page=taskflow_portfolio_page($pdo,$teamId,0,25);
+$project=array_values(array_filter($page['projects'],fn($p)=>(int)$p['id']===$riskListId));
+$assert(count($project)===1 && $project[0]['open_risks']===1 && $project[0]['critical_risks']===1,
+    'portfolio aggregates open and high/critical risks without cross-team data');
+$assert($project[0]['health']==='at_risk','critical risk raises portfolio health to at-risk');
+$idx=$pdo->prepare("SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name='project_risks' AND index_name='idx_risk_review_due'");
+$idx->execute();
+$assert((int)$idx->fetchColumn()>0,'risk reminder due-date index exists');
+// v1.19.0: project decisions and risk-notification uniqueness.
+require_once __DIR__.'/../includes/project_decisions.php';
+$pdo->prepare('INSERT INTO project_decisions(team_id,list_id,reporter_id,reporter_name,title,context,outcome,status,owner_id)
+  VALUES (?,?,?,?,?,?,?,?,?)')->execute([$teamId,$riskListId,$id,'Test Admin','Regional hosting choice',
+    'Hosting region needs a confirmed compliance policy.','Use EU-West region.','approved',$memberId]);
+$decisionId=(int)$pdo->lastInsertId();
+$findDecision=$pdo->prepare('SELECT id FROM project_decisions WHERE id=? AND team_id=?');
+$findDecision->execute([$decisionId,$teamId]);
+$assert((int)$findDecision->fetchColumn()===$decisionId,'decisions visible to owning team');
+$findDecision->execute([$decisionId,$otherTeamId]);
+$assert($findDecision->fetchColumn()===false,'decisions isolated from other teams');
+$crossTeamDecisionRejected=false;
+try{$pdo->prepare('INSERT INTO project_decisions(team_id,list_id,reporter_name,title,context,outcome)
+  VALUES (?,?,?,?,?,?)')->execute([$otherTeamId,$riskListId,'Test','Cross-team decision','Invalid project team pair.','']);}
+catch(PDOException $e){$crossTeamDecisionRejected=$e->getCode()==='23000';}
+$assert($crossTeamDecisionRejected,'composite FK blocks cross-team project decisions');
+$pdo->prepare("UPDATE project_decisions SET status='deferred',version=version+1 WHERE id=? AND version=1")
+  ->execute([$decisionId]);
+$staleDecision=$pdo->prepare("UPDATE project_decisions SET status='rejected',version=version+1 WHERE id=? AND version=1");
+$staleDecision->execute([$decisionId]);
+$assert($staleDecision->rowCount()===0,'stale decision edits rejected');
+$pdo->prepare("INSERT INTO risk_reminder_deliveries(risk_id,user_id,due_date,kind) VALUES (?,?,?,'due_today')")
+  ->execute([$riskId,$memberId,gmdate('Y-m-d')]);
+$duplicateReminderRejected=false;
+try{$pdo->prepare("INSERT INTO risk_reminder_deliveries(risk_id,user_id,due_date,kind) VALUES (?,?,?,'due_today')")
+  ->execute([$riskId,$memberId,gmdate('Y-m-d')]);}
+catch(PDOException $e){$duplicateReminderRejected=$e->getCode()==='23000';}
+$assert($duplicateReminderRejected,'risk reminders cannot double-record same notification');
+$pdo->prepare('DELETE FROM lists WHERE id=?')->execute([$riskListId]);
+$st=$pdo->prepare('SELECT COUNT(*) FROM project_risks WHERE id=?');$st->execute([$riskId]);
+$assert((int)$st->fetchColumn()===0,'deleting list cascades project risks');
+$st=$pdo->prepare('SELECT COUNT(*) FROM project_decisions WHERE id=?');$st->execute([$decisionId]);
+$assert((int)$st->fetchColumn()===0,'deleting list cascades decisions');
+$st=$pdo->prepare('SELECT COUNT(*) FROM risk_reminder_deliveries WHERE risk_id=?');$st->execute([$riskId]);
+$assert((int)$st->fetchColumn()===0,'deleting risks cascades reminder markers');
+echo 'MySQL schema and TaskFlow v1.19.0 decisions and risk reminders checks passed.' . PHP_EOL;

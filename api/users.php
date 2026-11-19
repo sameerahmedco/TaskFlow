@@ -148,6 +148,7 @@ if ($method === 'PUT' || $method === 'PATCH') {
         }
         $pdo->prepare('UPDATE users SET team_id = NULL, auth_version=auth_version+1 WHERE id = ?')->execute([$targetId]);
         $pdo->prepare('DELETE FROM remember_tokens WHERE user_id = ?')->execute([$targetId]);
+        $pdo->prepare('UPDATE password_reset_tokens SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL')->execute([$targetId]);
         log_activity((int) $me['team_id'], null, $me['id'], 'user_updated', 'Removed user #' . $targetId . ' from the team');
         json_response(['ok' => true]);
     }
@@ -190,7 +191,10 @@ if ($method === 'PUT' || $method === 'PATCH') {
                 $roleStmt->execute([$targetId, $r]);
             }
         }
-        if ($sensitive) $pdo->prepare('DELETE FROM remember_tokens WHERE user_id=?')->execute([$targetId]);
+        if ($sensitive) {
+            $pdo->prepare('DELETE FROM remember_tokens WHERE user_id=?')->execute([$targetId]);
+            $pdo->prepare('UPDATE password_reset_tokens SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL')->execute([$targetId]);
+        }
         $pdo->commit();
     } catch (DomainException $e) {
         $pdo->rollBack();

@@ -11,7 +11,7 @@ html = (root/'index.php').read_text().split('<!DOCTYPE html>',1)[1]
 html = '<!DOCTYPE html>' + re.sub(r'<\?php.*?\?>', '', html, flags=re.S)
 html = re.sub(r'<link rel="stylesheet"[^>]*>', '', html)
 html = re.sub(r'<script src="[^"]*">\s*</script>', '', html)
-styles = (root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()
+styles = (root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()
 script = (root/'assets/js/app.js').read_text()
 screens = root/'docs'/'screenshots'
 screens.mkdir(exist_ok=True,parents=True)

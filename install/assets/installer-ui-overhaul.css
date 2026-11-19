@@ -1,0 +1,39 @@
+/* TaskFlow 1.20.0: installer aligned with the application interface. */
+:root { --ink:#19313e;--muted:#607587;--line:#e0e9ed;--blue:#087e73;--aqua:#20b99e; }
+body { background:radial-gradient(circle at 10% 0,rgba(67,199,173,.09),transparent 39%),#f6f9fa;color:var(--ink); }
+.page { max-width:1160px; }
+.masthead { border-color:var(--line);padding-bottom:23px; }
+.masthead strong { color:#19313e; }
+.masthead span { color:#7894a2; }
+.install-brand-pill { background:#e5f5f0;border-color:#cce9dd;color:#0c766b;border-radius:30px;font-weight:780; }
+.installer-grid { padding-top:51px;gap:clamp(24px,4.4vw,69px); }
+.hero { padding-top:10px; }
+.hero .eyebrow { color:#087d72; }
+.hero h1 { color:#17323e; }
+.hero h1 em { color:#139a84; }
+.hero p { color:var(--muted); }
+.setup-highlight-icon { background:#e5f6f1;color:#047e71;border:1px solid #cfe9df; }
+.setup-highlights { gap:22px; }
+.setup-highlights strong { font-size:13.5px; }
+.steps { padding:10px 12px;border-radius:15px;border-color:var(--line);box-shadow:0 4px 20px rgba(29,66,77,.035); }
+.steps li.active { color:#087e73; }
+.steps .active span,.steps .complete span { background:#087e73; }
+.steps .complete { color:#087e73; }
+.panel { border:1px solid #dde9e8;border-radius:18px;box-shadow:0 17px 48px rgba(18,67,70,.07);padding:34px; }
+.panel h2 { color:#1a3440; }
+.panel>p { color:#637b87; }
+.step-tag { color:#0e8878; }
+.fields input { border-color:#cfdfdf;min-height:46px; }
+.fields input:focus { border-color:#138f7e;box-shadow:0 0 0 3px rgba(21,150,128,.12); }
+.checks { border-color:var(--line); }
+.check-row { border-color:var(--line); }
+.dot.good { background:#e0f5ea;color:#108463; }
+.btn { background:#087e73;border:1px solid #087e73;box-shadow:0 5px 12px rgba(10,102,87,.12); }
+.btn:hover { background:#08685f; }
+.btn-secondary { background:#fff;color:#607585;border-color:var(--line);box-shadow:none; }
+.btn-secondary:hover { background:#f2f8f6; }
+.notice { background:#edf8f4;border-color:#cfebde;color:#315d58; }
+.check-big { background:#e0f5ea;color:#087e64; }
+:where(a,button,input):focus-visible { outline:2px solid #087e73;outline-offset:3px; }
+@media(max-width:920px) { .installer-grid { padding-top:25px; } }
+@media(max-width:620px) { .panel { padding:23px 19px; } .hero h1 { font-size:35px; } }

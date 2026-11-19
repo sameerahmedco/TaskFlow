@@ -20,7 +20,7 @@ header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store, private');
 $out = fopen('php://output', 'wb');
 fwrite($out, "\xEF\xBB\xBF");
-fputcsv($out, ['List ID','Task list','Health','Progress %','All tasks','Done','Overdue','Due in 7 days','Unassigned','Remaining estimate (minutes)','Active milestones','Completed milestones','Past-target milestones'], ',', '"', '');
+fputcsv($out, ['List ID','Task list','Health','Progress %','All tasks','Done','Overdue','Due in 7 days','Unassigned','Remaining estimate (minutes)','Active milestones','Completed milestones','Past-target milestones','Open risks','High/critical risks'], ',', '"', '');
 $afterId = 0;
 do {
     $page = taskflow_portfolio_page($pdo, (int)$teamId, $afterId, 50);
@@ -28,7 +28,7 @@ do {
         fputcsv($out, array_map('taskflow_csv_safe', [
             $r['id'], $r['name'], $r['health'], $r['progress_percent'], $r['total_tasks'],
             $r['done_tasks'], $r['overdue_tasks'], $r['due_soon_tasks'], $r['unassigned_tasks'],
-            $r['remaining_estimate_minutes'], $r['milestones_total'], $r['milestones_complete'], $r['milestones_late']
+            $r['remaining_estimate_minutes'], $r['milestones_total'], $r['milestones_complete'], $r['milestones_late'], $r['open_risks'], $r['critical_risks']
         ]), ',', '"', '');
     }
     $afterId = $page['next_after_id'];

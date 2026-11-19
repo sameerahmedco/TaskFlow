@@ -1,0 +1,153 @@
+/* TaskFlow 1.22.0: cohesive, WCAG-aware color palettes.
+ * Loaded after theme-accessibility.css; legacy components still get either
+ * light or dark semantic surfaces via [data-theme], and accent options are
+ * applied using [data-palette]. No third-party theme engine or fonts.
+ */
+html[data-theme="light"][data-palette="light"] {
+  --bg:#ffffff;
+  --sidebar-bg:#ffffff;
+  --card-bg:#ffffff;
+  --surface:#f7fafb;
+  --surface-secondary:#eef4f5;
+  --surface-raised:#ffffff;
+  --control-bg:#ffffff;
+  --hover-surface:#e9f5f1;
+}
+html[data-palette="ocean"] {
+  color-scheme:light;
+  --accent:#2177ae; --accent-dark:#125c8b; --accent-light:#e5f3fc;
+  --bg:#f6faff; --sidebar-bg:#fff; --card-bg:#fff; --surface:#eff6fb;
+  --surface-secondary:#e9f3fa; --surface-raised:#fff;
+  --border:#cfdfea; --line:#cfdfea;
+  --text:#172f44; --text-dim:#486376; --text-faint:#526b7e;
+  --text-muted:#486376; --text-secondary:#486376; --muted:#486376;
+  --control-bg:#fff; --control-border:#baccdb; --control-focus:#1b6ea6;
+  --hover-surface:#e5f2fa; --hint-bg:#e1f0fb; --hint-text:#165a88;
+  --danger:#aa3446; --warning:#865309; --success:#136d4f; --info:#146a9b;
+  --tf-action:#1e6c9f; --tf-action-hover:#14517b; --tf-action-text:#fff;
+  --tf-hero-start:#173c65; --tf-hero-end:#176b98; --tf-hero-em:#a6ddff;
+  --tf-brand-start:#1b3a59; --tf-brand-end:#165981;
+}
+html[data-palette="forest"] {
+  color-scheme:light;
+  --accent:#287d53; --accent-dark:#17563a; --accent-light:#e7f4e9;
+  --bg:#f7faf7; --sidebar-bg:#fff; --card-bg:#fff; --surface:#eff6f0;
+  --surface-secondary:#eaf3e9; --surface-raised:#fff;
+  --border:#d4e3d8; --line:#d4e3d8;
+  --text:#24382b; --text-dim:#506958; --text-faint:#59715e;
+  --text-muted:#506958; --text-secondary:#506958; --muted:#506958;
+  --control-bg:#fff; --control-border:#c1d4c6; --control-focus:#287d53;
+  --hover-surface:#e3f2e6; --hint-bg:#e6f3e9; --hint-text:#195d3b;
+  --danger:#ab3848; --warning:#875509; --success:#166b49; --info:#1e6886;
+  --tf-action:#237248; --tf-action-hover:#195a37; --tf-action-text:#fff;
+  --tf-hero-start:#243b31; --tf-hero-end:#2b6547; --tf-hero-em:#bbefba;
+  --tf-brand-start:#233a2f; --tf-brand-end:#2f6048;
+}
+html[data-palette="lavender"] {
+  color-scheme:light;
+  --accent:#775ab4; --accent-dark:#593c93; --accent-light:#f0eaff;
+  --bg:#fbf9ff; --sidebar-bg:#fff; --card-bg:#fff; --surface:#f5f1fc;
+  --surface-secondary:#eee8f8; --surface-raised:#fff;
+  --border:#dfd7ec; --line:#dfd7ec;
+  --text:#302b43; --text-dim:#645675; --text-faint:#71647f;
+  --text-muted:#645675; --text-secondary:#645675; --muted:#645675;
+  --control-bg:#fff; --control-border:#ccc0e0; --control-focus:#7457b1;
+  --hover-surface:#ede5fa; --hint-bg:#f0eafb; --hint-text:#5e418f;
+  --danger:#ad3b54; --warning:#8b5614; --success:#247053; --info:#3866a3;
+  --tf-action:#6e50aa; --tf-action-hover:#543a86; --tf-action-text:#fff;
+  --tf-hero-start:#35294f; --tf-hero-end:#645092; --tf-hero-em:#e3c9ff;
+  --tf-brand-start:#342b50; --tf-brand-end:#58477e;
+}
+html[data-palette="sunset"] {
+  color-scheme:light;
+  --accent:#b65038; --accent-dark:#8a3927; --accent-light:#fff0e8;
+  --bg:#fffaf6; --sidebar-bg:#fff; --card-bg:#fff; --surface:#fff5ed;
+  --surface-secondary:#faece1; --surface-raised:#fff;
+  --border:#e8d8cd; --line:#e8d8cd;
+  --text:#423029; --text-dim:#73584a; --text-faint:#7e6253;
+  --text-muted:#73584a; --text-secondary:#73584a; --muted:#73584a;
+  --control-bg:#fff; --control-border:#dbc5b6; --control-focus:#b7523a;
+  --hover-surface:#ffeadf; --hint-bg:#ffecdd; --hint-text:#853d27;
+  --danger:#a53246; --warning:#81510c; --success:#346e46; --info:#316a8a;
+  --tf-action:#aa4931; --tf-action-hover:#873724; --tf-action-text:#fff;
+  --tf-hero-start:#57332d; --tf-hero-end:#ad6249; --tf-hero-em:#ffdbac;
+  --tf-brand-start:#4a312c; --tf-brand-end:#99513b;
+}
+html[data-palette="midnight"] {
+  color-scheme:dark;
+  --accent:#c1afff; --accent-dark:#e1d7ff; --accent-light:#3e385f;
+  --bg:#0b1427; --sidebar-bg:#111d35; --card-bg:#172743; --surface:#202f4a;
+  --surface-secondary:#243653; --surface-raised:#223551;
+  --border:#455977; --line:#455977;
+  --text:#f4f6ff; --text-dim:#ced8ec; --text-faint:#b5c4dc;
+  --text-muted:#ced8ec; --text-secondary:#ced8ec; --muted:#ced8ec;
+  --control-bg:#13223c; --control-border:#566d90; --control-focus:#cab8ff;
+  --hover-surface:#37385c; --hint-bg:#413b64; --hint-text:#e8dbff;
+  --danger:#ffb2c4; --warning:#ffd7a5; --success:#8ceac4; --info:#bed6ff;
+  --tf-action:#7058b9; --tf-action-hover:#876cd0; --tf-action-text:#fff;
+  --tf-hero-start:#1d2b53; --tf-hero-end:#513c81; --tf-hero-em:#e0ceff;
+  --tf-brand-start:#1d2b49; --tf-brand-end:#443670;
+  --shadow:0 2px 11px rgba(1,7,21,.23);
+  --shadow-lg:0 25px 75px rgba(0,0,0,.61);
+}
+
+/* Bring hard-coded brand areas in line with the user's palette choice. */
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) {
+  --tf-brand-highlight:var(--accent-dark);
+}
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) :is(.btn-primary,.header-create-btn,.auth-form .btn-primary) {
+  background:var(--tf-action);border-color:var(--tf-action);color:var(--tf-action-text);
+}
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) :is(.btn-primary,.header-create-btn,.auth-form .btn-primary):hover {
+  background:var(--tf-action-hover);border-color:var(--tf-action-hover);color:var(--tf-action-text);
+}
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) .sidebar-top .brand {
+  background:linear-gradient(125deg,var(--tf-brand-start),var(--tf-brand-end));
+  color:#fff;
+}
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) .work-hero,
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) .auth-story {
+  background:radial-gradient(ellipse at 80% 22%,color-mix(in srgb,var(--accent) 30%,transparent),transparent 48%),linear-gradient(120deg,var(--tf-hero-start),var(--tf-hero-end));
+  border-color:color-mix(in srgb,var(--tf-hero-end) 80%,#fff);
+}
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) .work-hero h2 em {color:var(--tf-hero-em);}
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) .sidebar-nav .nav-item.active {
+  background:var(--accent-light);color:var(--accent-dark);border-color:var(--border);
+}
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) .sidebar-nav .nav-item.active::before {background:var(--accent);}
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) .sidebar-nav .nav-item:hover {background:var(--hover-surface);color:var(--accent-dark);}
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) .focus-shortcuts button[aria-pressed="true"] {background:var(--accent-light);border-color:var(--accent-light);color:var(--accent-dark);}
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) .auth-login-pane {
+  background:radial-gradient(ellipse at 70% 5%,var(--accent-light),transparent 45%),var(--bg);
+}
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) :is(.auth-form-eyebrow,.auth-footnote a,.section-kicker,.nav-group-toggle:hover) {color:var(--accent-dark);}
+html[data-palette="midnight"] :is(.auth-split .auth-card,.auth-screen:not(.auth-split) .auth-card) {
+  background:var(--card-bg);border-color:var(--border);color:var(--text);
+}
+html[data-palette="midnight"] .sidebar-nav .nav-item {color:var(--text-dim);}
+html[data-palette="midnight"] .sidebar-nav .nav-item:hover {color:var(--accent-dark);}
+
+/* The sign-in appearance grid stays readable with eight choices on mobile. */
+.auth-appearance {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;width:100%;max-width:100%;padding:5px;margin-bottom:17px;background:var(--surface-secondary);border-color:var(--border);}
+.auth-appearance button {min-width:0;padding:7px 3px;font-size:10.5px;display:flex;align-items:center;justify-content:center;gap:5px;color:var(--text-dim);white-space:nowrap;}
+.auth-appearance button::before {content:"";display:inline-block;flex:none;width:9px;height:9px;border-radius:50%;border:1px solid rgba(19,34,50,.28);background:var(--swatch,#fff);}
+.auth-appearance button[data-theme-choice="light"] {--swatch:#fff;}
+.auth-appearance button[data-theme-choice="dark"] {--swatch:#20313f;}
+.auth-appearance button[data-theme-choice="system"] {--swatch:linear-gradient(90deg,#fff 50%,#263347 50%);}
+.auth-appearance button[data-theme-choice="ocean"] {--swatch:#2177ae;}
+.auth-appearance button[data-theme-choice="forest"] {--swatch:#287d53;}
+.auth-appearance button[data-theme-choice="lavender"] {--swatch:#775ab4;}
+.auth-appearance button[data-theme-choice="sunset"] {--swatch:#b65038;}
+.auth-appearance button[data-theme-choice="midnight"] {--swatch:#6048a2;}
+.auth-appearance button[aria-pressed="true"] {background:var(--card-bg);color:var(--accent-dark);outline:1px solid var(--border);}
+.auth-appearance button:hover:not([aria-pressed="true"]) {background:var(--hover-surface);color:var(--text);}
+html[data-theme="dark"] .auth-appearance button[aria-pressed="true"] {background:var(--accent-light);color:var(--accent-dark);}
+.appearance-pref select {width:149px;min-width:120px;max-width:165px;}
+@media(max-width:400px){.auth-appearance button {font-size:9px;gap:3px;}.auth-appearance button::before {width:7px;height:7px;}}
+@media(prefers-contrast:more){
+  :is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) {--text-faint:var(--text-dim);--control-border:var(--text-dim);}
+}
+/* Sign-in helper text must use the same readable foreground as workspace data. */
+:is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) :is(.auth-subtitle,.auth-footnote,.auth-form label,.auth-trust) {
+  color:var(--text-dim);
+}

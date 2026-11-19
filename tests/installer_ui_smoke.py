@@ -9,7 +9,7 @@ root=Path(__file__).resolve().parent.parent
 html=subprocess.check_output(['php','install/index.php'],cwd=root,text=True)
 html=re.sub(r'<link rel="stylesheet"[^>]*>','',html)
 html=re.sub(r'<script src="assets/installer.js" defer></script>','',html)
-styles=(root/'install/assets/installer.css').read_text()+'\n'+(root/'install/assets/installer-v1.css').read_text()
+styles=(root/'install/assets/installer.css').read_text()+'\n'+(root/'install/assets/installer-v1.css').read_text()+'\n'+(root/'install/assets/installer-ui-overhaul.css').read_text()
 script=(root/'install/assets/installer.js').read_text()
 screens=root/'docs/screenshots'
 screens.mkdir(exist_ok=True)

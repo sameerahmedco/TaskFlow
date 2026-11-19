@@ -1,0 +1,41 @@
+<?php
+/** TaskFlow 1.15.0: advisory annual balances and strict month/allowance parsing. */
+declare(strict_types=1);
+require_once __DIR__.'/../includes/leave_balances.php';
+$checks=0;$failed=0;
+$check=static function(bool $ok,string $label)use(&$checks,&$failed){$checks++;if(!$ok){$failed++;fwrite(STDERR,"FAIL: $label\n");}};
+$reject=static function(callable $f):bool{try{$f();return false;}catch(InvalidArgumentException){return true;}};
+$check(taskflow_leave_allowance_units(0)===0,'zero allowance accepted');
+$check(taskflow_leave_allowance_units('42')===42,'numeric string half-days accepted');
+$check(taskflow_leave_allowance_units(732)===732,'leap year maximum');
+$check($reject(fn()=>taskflow_leave_allowance_units(733)),'over-limit rejected');
+$check($reject(fn()=>taskflow_leave_allowance_units(-1)),'negative allowance rejected');
+$check($reject(fn()=>taskflow_leave_allowance_units('2.5')),'fractional units rejected');
+$check($reject(fn()=>taskflow_leave_allowance_units('2\0')),'control character rejected');
+$check($reject(fn()=>taskflow_leave_allowance_units(true)),'boolean rejected');
+$check(taskflow_leave_calendar_month('2026-11',2026)['to']==='2026-11-30','calendar month ends correctly');
+$check(taskflow_leave_calendar_month('2028-02',2026)['to']==='2028-02-29','leap day handled');
+$check($reject(fn()=>taskflow_leave_calendar_month('2026-13',2026)),'invalid month rejected');
+$check($reject(fn()=>taskflow_leave_calendar_month('2026-11junk',2026)),'month suffix rejected');
+$check($reject(fn()=>taskflow_leave_calendar_month('2032-01',2026)),'far future month rejected');
+$week=[['start_date'=>'2026-11-16','end_date'=>'2026-11-20','day_portion'=>'full']];
+$check(taskflow_annual_leave_units(2026,31,$week,[])===10,'five scheduled weekdays are ten half-day units');
+$check(taskflow_annual_leave_units(2026,31,$week,['2026-11-18'])===8,'holiday excludes one weekday');
+$check(taskflow_annual_leave_units(2026,31,$week,['2026-11-21'])===10,'off-day holiday has no effect');
+$check(taskflow_annual_leave_units(2026,16,$week,[])===2,'Friday-only employee counts one day');
+$check(taskflow_annual_leave_units(2026,64,$week,[])===0,'Sunday-only schedule ignores weekday leave');
+$halfA=['start_date'=>'2026-11-17','end_date'=>'2026-11-17','day_portion'=>'am'];
+$halfP=['start_date'=>'2026-11-17','end_date'=>'2026-11-17','day_portion'=>'pm'];
+$check(taskflow_annual_leave_units(2026,31,[$halfA],[])===1,'morning leave is one unit');
+$check(taskflow_annual_leave_units(2026,31,[$halfA,$halfP],[])===2,'two halves are one day');
+$check(taskflow_annual_leave_units(2026,31,[$halfA,$halfA],[])===1,'duplicate half not double counted');
+$check(taskflow_annual_leave_units(2026,31,[$halfA,$halfP],['2026-11-17'])===0,'holiday supersedes halves');
+$check(taskflow_annual_leave_units(2026,31, [['start_date'=>'2026-12-31','end_date'=>'2027-01-03','day_portion'=>'full']],[])===2,'cross-year leave clipped to December 31');
+$check(taskflow_annual_leave_units(2027,31, [['start_date'=>'2026-12-31','end_date'=>'2027-01-03','day_portion'=>'full']],[])===2,'cross-year leave clipped to January 1');
+$check(taskflow_annual_leave_units(2028,127, [['start_date'=>'2028-02-29','end_date'=>'2028-02-29','day_portion'=>'pm']],[])===1,'leap-day partial leave');
+$check(taskflow_leave_balance(null,3)['remaining_half_days']===null,'unconfigured allowance not interpreted as zero');
+$check(taskflow_leave_balance(20,3)['remaining_half_days']===17,'remaining allowance computed');
+$check(taskflow_leave_balance(2,3)['remaining_half_days']===-1,'overage remains visible, not clamped');
+$check($reject(fn()=>taskflow_leave_balance(2,-1)),'negative approved use rejected');
+if($failed){fwrite(STDERR,"$failed of $checks balance checks failed.\n");exit(1);}
+echo "All $checks leave balance checks passed.\n";

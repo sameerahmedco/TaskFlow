@@ -172,6 +172,14 @@ function smtp_send(array $settings, string $to, string $subject, string $body): 
  * broader personal-preference category a user opts in/out of:
  * "messages", "new_tasks", or "mentions".
  */
+/** Enqueue a bearer-token email encrypted at rest. A queue worker must be scheduled. */
+function taskflow_queue_secure_mail(PDO $pdo, string $recipient, string $subject, string $body): void {
+    $ciphertext = secret_encrypt($body);
+    if (!str_starts_with($ciphertext, 'enc:v1:')) throw new RuntimeException('Could not encrypt mail payload.');
+    $pdo->prepare('INSERT INTO mail_queue (recipient_email, subject, body, body_is_encrypted) VALUES (?,?,?,1)')
+        ->execute([$recipient, $subject, $ciphertext]);
+}
+
 function notification_category(string $eventKey): string {
     switch ($eventKey) {
         case 'task_created':

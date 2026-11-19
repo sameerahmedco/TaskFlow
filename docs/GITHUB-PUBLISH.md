@@ -14,7 +14,7 @@ To publish *your own* repository:
 cd TaskFlow
 git init
 git add .
-git commit -m "TaskFlow 1.10.0: private files, recurring tasks and audit tools"
+git commit -m "TaskFlow 1.21.0: accessible dual-theme UI"
 # Create your own empty GitHub repository in the GitHub UI, then:
 git remote add origin https://github.com/YOUR-ORG/YOUR-REPO.git
 git branch -M main

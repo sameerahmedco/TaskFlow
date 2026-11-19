@@ -10,14 +10,25 @@ if (empty($settings['smtp_enabled'])) exit(0);
 $processed = 0;
 while ($processed < 30) {
     $pdo->beginTransaction();
-    $row = $pdo->query("SELECT id,recipient_email,subject,body,attempts FROM mail_queue
+    $row = $pdo->query("SELECT id,recipient_email,subject,body,body_is_encrypted,attempts FROM mail_queue
         WHERE (status='pending' AND next_attempt_at <= UTC_TIMESTAMP())
            OR (status='processing' AND locked_at < UTC_TIMESTAMP() - INTERVAL 15 MINUTE AND attempts < 5)
         ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED")->fetch();
     if (!$row) { $pdo->commit(); break; }
     $pdo->prepare("UPDATE mail_queue SET status='processing', attempts=attempts+1, locked_at=UTC_TIMESTAMP() WHERE id=?")->execute([$row['id']]);
     $pdo->commit();
-    $result = smtp_send($settings, $row['recipient_email'], $row['subject'], $row['body']);
+    try {
+        $body = $row['body'];
+        if ((int)$row['body_is_encrypted'] === 1) {
+            if (!str_starts_with($body, 'enc:v1:')) throw new RuntimeException('Invalid encrypted mail payload.');
+            $body = secret_decrypt($body);
+        }
+        $result = smtp_send($settings, $row['recipient_email'], $row['subject'], $body);
+    } catch (Throwable $e) {
+        // Fail closed; never send a malformed encrypted bearer link as plain text.
+        error_log('Secure mail payload could not be decrypted: ' . get_class($e));
+        $result = ['ok' => false];
+    }
     if ($result['ok']) {
         $pdo->prepare("UPDATE mail_queue SET status='sent', sent_at=UTC_TIMESTAMP(), locked_at=NULL, body='' WHERE id=?")->execute([$row['id']]);
     } else {

@@ -10,7 +10,7 @@ screens.mkdir(exist_ok=True, parents=True)
 html = '<!doctype html>' + (root/'index.php').read_text().split('<!DOCTYPE html>', 1)[1]
 html = re.sub(r'<\?php.*?\?>', '', html, flags=re.S)
 html = re.sub(r'<link rel="stylesheet"[^>]*>', '', html)
-html = re.sub(r'<script src="assets/js/app.js[^>]*></script>', '', html)
+html = re.sub(r'<script src="assets/js/[^"]+"[^>]*></script>', '', html)
 html = html.replace('</head>','<link rel="stylesheet" href="assets/css/style.css"><link rel="stylesheet" href="assets/css/design-system.css"></head>')
 html = html.replace('</body>','<script src="assets/js/app.js"></script></body>')
 MOCK = r"""() => {
@@ -51,8 +51,9 @@ MOCK = r"""() => {
 # Inline assets for local, network-free Playwright execution. The product itself
 # continues to load normal same-origin CSS and the cached icon sprite.
 icons_svg=(root/'assets/img/icons.svg').read_text()
-style=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()
+style=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()
 app_js=(root/'assets/js/app.js').read_text()
+ui_js=(root/'assets/js/ui-enhancements.js').read_text()
 brand_png='data:image/png;base64,'+base64.b64encode((root/'assets/img/taskflow-logo-192.png').read_bytes()).decode()
 def paint_brand(page):
     page.evaluate("""(url) => {
@@ -75,6 +76,7 @@ def load_ui(page, authenticated=False):
     if authenticated:
         page.evaluate(MOCK)
         page.add_script_tag(content=app_js)
+        page.add_script_tag(content=ui_js)
         page.wait_for_selector('#app:not(.hidden)',timeout=15000)
         page.wait_for_selector('#my-work-results .search-result',timeout=15000)
         paint_brand(page)
@@ -89,14 +91,47 @@ with sync_playwright() as p:
     assert page.locator('#auth-screen').is_visible()
     assert page.locator('.auth-story').is_visible()
     assert page.locator('.auth-form-eyebrow').inner_text() == 'WELCOME BACK'
+    assert page.locator('[data-theme-choice]').count()==8
     page.close()
 
     page = browser.new_page(viewport={'width':1440,'height':940},device_scale_factor=1)
     page.on('pageerror', lambda e: errors.append(str(e)))
     load_ui(page, authenticated=True)
     assert page.locator('#view-title').inner_text() == 'My Work'
-    assert 'v1.10.0' in page.locator('.sidebar-version').inner_text()
+    assert 'v1.22.0' in page.locator('.sidebar-version').inner_text()
     assert page.locator('.nav-svg').count()>15
+    assert page.locator('.sidebar-finder').is_visible()
+    assert page.locator('.nav-group-toggle').count() >= 3
+    page.locator('#nav-filter').fill('milestones')
+    assert page.locator('[data-view="milestones"]').is_visible()
+    assert page.locator('[data-view="board"]').is_hidden()
+    page.locator('#nav-filter').fill('')
+    assert page.locator('[data-view="board"]').is_visible()
+    page.locator('.nav-group-toggle').filter(has_text='PLANNING').click()
+    assert page.locator('[data-view="milestones"]').is_hidden()
+    page.locator('.nav-group-toggle').filter(has_text='PLANNING').click()
+    assert page.locator('[data-view="milestones"]').is_visible()
+    page.locator('#quick-switch-btn').click()
+    assert page.locator('#quick-switch-modal').is_visible()
+    page.screenshot(path=str(screens/'page-switcher.png'),full_page=True)
+    page.locator('#quick-switch-input').fill('board')
+    assert page.locator('.command-result').count() >= 1
+    page.keyboard.press('Enter')
+    assert page.locator('#view-title').inner_text() == 'Board'
+    page.keyboard.press('Control+Shift+k')
+    assert page.locator('#quick-switch-modal').is_visible()
+    page.keyboard.press('Escape')
+    assert page.locator('#quick-switch-modal').is_hidden()
+    page.locator('[data-view="my-work"]').click()
+    page.wait_for_selector('.work-hero')
+    assert page.locator('.focus-shortcuts button').count() == 4
+    page.locator('[data-work-filter="today"]').click()
+    assert page.locator('#my-work-due').input_value() == 'today'
+    page.locator('#my-work-due').select_option('all')
+    page.locator('#density-switch').click()
+    assert page.evaluate('document.documentElement.dataset.density') == 'compact'
+    page.locator('#density-switch').click()
+    assert page.evaluate('document.documentElement.dataset.density') == 'comfortable'
     page.screenshot(path=str(screens/'workspace.png'),full_page=True)
     page.locator('#topbar-search').click()
     page.wait_for_selector('#task-search-q')
@@ -105,6 +140,7 @@ with sync_playwright() as p:
     assert page.evaluate("document.activeElement === document.getElementById('task-search-q')")
     page.locator('#theme-switch').click()
     assert page.evaluate("document.documentElement.dataset.theme") == 'dark'
+    assert page.locator('#appearance-preference').input_value()=='dark'
     # browser-local preference persists only when storage is enabled by browser
     try:
         assert page.evaluate("localStorage.getItem('taskflow-appearance')") == 'dark'
@@ -134,11 +170,15 @@ with sync_playwright() as p:
     mobile.on('pageerror', lambda e:errors.append(str(e)))
     load_ui(mobile,authenticated=True)
     assert mobile.locator('#mobile-menu-btn').is_visible()
+    assert mobile.locator('#mobile-dock').is_visible()
+    assert mobile.locator('[data-mobile-view="my-work"]').get_attribute('aria-current') == 'page'
     mobile.locator('#mobile-menu-btn').click()
     assert mobile.locator('#mobile-menu-btn').get_attribute('aria-expanded')=='true'
     mobile.locator('[data-view="board"]').click()
     mobile.wait_for_selector('.board-card')
     assert mobile.locator('#mobile-menu-btn').get_attribute('aria-expanded')=='false'
+    assert mobile.locator('[data-mobile-view="board"]').get_attribute('aria-current') == 'page'
+    mobile.wait_for_timeout(350)  # allow navigation drawer's close animation to finish
     assert mobile.evaluate('document.documentElement.scrollWidth <= innerWidth + 2'), 'Mobile page horizontal overflow'
     assert mobile.evaluate('document.querySelector("#kanban-board").scrollWidth > document.querySelector("#kanban-board").clientWidth'), 'Board should scroll inside viewport'
     mobile.screenshot(path=str(screens/'mobile-board.png'),full_page=True)
