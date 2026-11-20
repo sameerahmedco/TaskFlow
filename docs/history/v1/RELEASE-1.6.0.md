@@ -15,7 +15,7 @@ TaskFlow 1.6.0 introduces milestones while preserving the existing lightweight P
 
 | Desktop | Mobile |
 | --- | --- |
-| ![Milestone planner](screenshots/milestones.png) | ![Milestones on mobile](screenshots/milestones-mobile.png) |
+| ![Milestone planner](../../screenshots/milestones.png) | ![Milestones on mobile](../../screenshots/milestones-mobile.png) |
 
 Screenshots use fictional sample records and mocked APIs, not any organization's real data.
 
@@ -26,7 +26,7 @@ Screenshots use fictional sample records and mocked APIs, not any organization's
 3. Deploy new source files without overwriting `config/config.local.php`, your application key or `config/.installed`. Do not run the fresh organization installer or import `schema.sql` into the existing database.
 4. Verify manager/member permissions, same-list task linking, archive/restore, task deletion cleanup, date boundaries, and existing workload/time approval workflows against MySQL 8.
 
-For older installations, apply missing migrations **in order** through 1.6.0. The DDL is not generally safe to re-run. See [UPGRADE.md](UPGRADE.md).
+For older installations, apply missing migrations **in order** through 1.6.0. The DDL is not generally safe to re-run. See [UPGRADE.md](../../UPGRADE.md).
 
 ## Limitations and verification
 

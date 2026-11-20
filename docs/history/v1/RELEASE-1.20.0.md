@@ -22,4 +22,4 @@ Back up the database and private configuration; deploy the new files. Do **not**
 - 24 distinct PHP unit test scripts passed, and 23 browser smoke suites passed, including the new interactive navigation and mobile checks.
 - Browser tests use mocked APIs. The v1.20.0 UI change does not require database alterations, but end-to-end MySQL, real permissions, penetration and production load testing are still outstanding.
 
-See [test report](TEST-RESULTS-1.20.0.md), [upgrade guide](UPGRADE.md) and [deployment guide](DEPLOYMENT.md).
+See [test report](../../TEST-RESULTS-1.20.0.md), [upgrade guide](../../UPGRADE.md) and [deployment guide](../../DEPLOYMENT.md).

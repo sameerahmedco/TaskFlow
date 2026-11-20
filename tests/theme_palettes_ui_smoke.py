@@ -31,7 +31,10 @@ with sync_playwright() as play:
             assert page.evaluate('document.documentElement.dataset.theme')==expected,(palette,view)
             assert page.evaluate('document.documentElement.dataset.palette')==palette,(palette,view)
             assert page.locator('#appearance-preference').input_value()==palette
-            page.locator(f'.nav-item[data-view="{view}"]').first.click()
+            target=page.locator(f'.nav-item[data-view="{view}"]').first
+            if not target.is_visible():
+                page.locator('#v2-tools-toggle').click()
+            target.click()
             page.wait_for_timeout(140)
             for selector in selectors:
                 result=page.evaluate(JS,selector)

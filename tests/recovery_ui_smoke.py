@@ -16,7 +16,7 @@ with sync_playwright() as p:
     errors=[]
     request=browser.new_page(viewport={'width':1350,'height':850})
     request.on('pageerror',lambda e:errors.append(str(e)))
-    request.set_content(html)
+    request.set_content(html.replace('id="v2-tools-drawer" hidden','id="v2-tools-drawer"'))
     request.add_style_tag(content=css)
     request.evaluate('(logo)=>{document.querySelector(".brand img").src=logo}',logo)
     request.evaluate('history.replaceState=()=>{}')
@@ -41,7 +41,7 @@ with sync_playwright() as p:
     token='a'*64
     reset=browser.new_page(viewport={'width':390,'height':844},is_mobile=True,has_touch=True)
     reset.on('pageerror',lambda e:errors.append(str(e)))
-    reset.set_content(html)
+    reset.set_content(html.replace('id="v2-tools-drawer" hidden','id="v2-tools-drawer"'))
     reset.add_style_tag(content=css)
     reset.evaluate('''() => {
       window.location.hash='#token='+'a'.repeat(64);
@@ -70,7 +70,7 @@ with sync_playwright() as p:
 
     expired=browser.new_page(viewport={'width':800,'height':720})
     expired.on('pageerror',lambda e:errors.append(str(e)))
-    expired.set_content(html)
+    expired.set_content(html.replace('id="v2-tools-drawer" hidden','id="v2-tools-drawer"'))
     expired.evaluate('''() => {
       window.location.hash='#token='+'b'.repeat(64);
       history.replaceState=()=>{};

@@ -21,13 +21,14 @@ start_secure_session();
 <link rel="stylesheet" href="assets/css/ui-overhaul.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/ui-overhaul.css') ?: time(); ?>">
 <link rel="stylesheet" href="assets/css/theme-accessibility.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/theme-accessibility.css') ?: time(); ?>">
 <link rel="stylesheet" href="assets/css/theme-palettes.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/theme-palettes.css') ?: time(); ?>">
+<link rel="stylesheet" href="assets/css/v2-workspace.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/v2-workspace.css') ?: time(); ?>">
 </head>
 <body>
 
 <!-- ===================== SIGN IN ===================== -->
 <div id="auth-screen" class="auth-screen auth-split">
   <div class="auth-story" aria-label="About TaskFlow">
-    <div class="auth-story-brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="auth-story-version">1.22.0</span></div>
+    <div class="auth-story-brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="auth-story-version">2.0.0</span></div>
     <div class="auth-story-inner">
       <div class="auth-story-eyebrow"><span class="signal-dot"></span> Your work, in one place</div>
       <h1>Great work starts<br>with <em>clear thinking.</em></h1>
@@ -116,7 +117,7 @@ start_secure_session();
   <a class="skip-to-content" href="#view-container">Skip to content</a>
   <aside id="workspace-sidebar" class="sidebar" aria-label="Workspace navigation">
     <div class="sidebar-top">
-      <div class="brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="brand-version">1.22.0</span></div>
+      <div class="brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="brand-version">2.0.0</span></div>
       <div class="workspace-card">
         <div class="workspace-card-label">WORKSPACE</div>
         <div class="workspace-card-name" id="org-name"></div>
@@ -129,6 +130,17 @@ start_secure_session();
       <input id="nav-filter" type="search" placeholder="Find a page..." autocomplete="off" aria-label="Find a page in TaskFlow">
       <kbd>/</kbd>
     </div>
+    <div class="v2-pinned-heading"><span>WORKSPACE</span><span class="v2-heading-line"></span></div>
+    <nav class="v2-pinned-nav" id="v2-pinned-nav" aria-label="Main workspace shortcuts">
+      <button type="button" data-v2-view="my-work"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#target"></use></svg><span>Home</span></button>
+      <button type="button" data-v2-view="tasks"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#check-square"></use></svg><span>My projects</span></button>
+      <button type="button" data-v2-view="board"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#columns"></use></svg><span>Board</span></button>
+      <button type="button" data-v2-view="calendar"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#calendar"></use></svg><span>Calendar</span></button>
+      <button type="button" data-v2-view="inbox"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#bell"></use></svg><span>Inbox</span></button>
+    </nav>
+    <button type="button" id="v2-tools-toggle" class="v2-tools-toggle" aria-expanded="false" aria-controls="v2-tools-drawer"><span><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#layers"></use></svg>Explore all tools</span><span class="v2-tools-chevron" aria-hidden="true">+</span></button>
+    <div class="v2-tool-drawer" id="v2-tools-drawer" hidden>
+      <p class="v2-tool-help">All your existing TaskFlow features, organized in one place.</p>
     <div class="sidebar-menu-scroll">
       <nav class="sidebar-nav" id="team-nav" aria-label="Team navigation">
       <span class="nav-group-label">YOUR WORK</span>
@@ -173,6 +185,7 @@ start_secure_session();
       <button type="button" class="nav-item" data-view="advanced-settings"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#sliders"></use></svg><span>Settings</span></button>
       </nav>
     </div>
+    </div><!-- /v2-tool-drawer -->
     <div class="sidebar-bottom">
       <label class="appearance-pref" for="appearance-preference"><span class="appearance-pref-label">Appearance</span>
         <select id="appearance-preference" aria-label="Appearance preference">
@@ -191,7 +204,7 @@ start_secure_session();
         <button id="change-pw-btn" class="icon-btn" title="Change password" aria-label="Change password"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#key"></use></svg></button>
         <button id="logout-btn" class="btn btn-ghost logout-btn" title="Log out">Sign out</button>
       </div>
-      <div class="sidebar-version">TaskFlow <span>v1.22.0</span></div>
+      <div class="sidebar-version">TaskFlow <span>v2.0.0</span></div>
     </div>
   </aside>
   <main class="main" id="main-content">
@@ -207,6 +220,7 @@ start_secure_session();
       </div>
     </header>
     <div class="view-toolbar" id="view-toolbar"><div class="view-description" id="view-description">A clear view of what needs your attention.</div><div class="topbar-actions" id="topbar-actions"></div></div>
+    <nav class="v2-view-tabs" id="v2-view-tabs" aria-label="Related views"></nav>
     <div id="view-container" class="view-container" tabindex="-1"></div>
   </main>
 </div>
@@ -250,5 +264,6 @@ start_secure_session();
 
 <script src="assets/js/app.js?v=<?php echo @filemtime(__DIR__ . '/assets/js/app.js') ?: time(); ?>"></script>
 <script src="assets/js/ui-enhancements.js?v=<?php echo @filemtime(__DIR__ . '/assets/js/ui-enhancements.js') ?: time(); ?>"></script>
+<script src="assets/js/v2-workspace.js?v=<?php echo @filemtime(__DIR__ . '/assets/js/v2-workspace.js') ?: time(); ?>"></script>
 </body>
 </html>

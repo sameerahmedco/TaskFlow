@@ -147,7 +147,7 @@ $h = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | E
 <title>Set up TaskFlow</title><link rel="icon" href="../assets/img/favicon-64.png">
 <link rel="stylesheet" href="assets/installer.css"><link rel="stylesheet" href="assets/installer-v1.css"><link rel="stylesheet" href="assets/installer-ui-overhaul.css"></head><body>
 <div class="page">
-<header class="masthead"><img src="../assets/img/taskflow-logo-192.png" alt="" width="48" height="48"><div><strong>TaskFlow</strong><span>SETUP · VERSION 1.22.0</span></div><span class="install-brand-pill">FIRST-RUN CONFIGURATION</span></header>
+<header class="masthead"><img src="../assets/img/taskflow-logo-192.png" alt="" width="48" height="48"><div><strong>TaskFlow</strong><span>SETUP · VERSION 2.0.0</span></div><span class="install-brand-pill">FIRST-RUN CONFIGURATION</span></header>
 <?php if ($installed): ?>
 <div class="panel completion"><div class="check-big" aria-hidden="true">✓</div><h1>Your workspace is ready.</h1><p>The first administrator has been created and the installer is permanently locked. You can now sign in securely.</p><a class="btn" href="../index.php">Open TaskFlow</a></div>
 <?php else: ?>

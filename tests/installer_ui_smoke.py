@@ -20,7 +20,7 @@ with sync_playwright() as p:
         page=browser.new_page(viewport={'width':width,'height':870})
         errors=[]
         page.on('pageerror',lambda e: errors.append(str(e)))
-        page.set_content(html)
+        page.set_content(html.replace('id="v2-tools-drawer" hidden','id="v2-tools-drawer"'))
         page.add_style_tag(content=styles)
         page.evaluate("(src) => document.querySelectorAll('img[src^=\"../assets/img/\"]').forEach(i=>i.src=src)",brand)
         page.add_script_tag(content=script)

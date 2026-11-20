@@ -7,7 +7,7 @@ html='<!DOCTYPE html>'+(ROOT/'index.php').read_text().split('<!DOCTYPE html>',1)
 html=re.sub(r'<\?php.*?\?>','',html,flags=re.S)
 html=re.sub(r'<link rel="stylesheet"[^>]*>','',html)
 html=re.sub(r'<script src="[^"]*">\s*</script>','',html)
-css=(ROOT/'assets/css/style.css').read_text()+'\n'+(ROOT/'assets/css/design-system.css').read_text()+'\n'+(ROOT/'assets/css/ui-overhaul.css').read_text()+'\n'+(ROOT/'assets/css/theme-accessibility.css').read_text()+'\n'+(ROOT/'assets/css/theme-palettes.css').read_text()
+css=(ROOT/'assets/css/style.css').read_text()+'\n'+(ROOT/'assets/css/design-system.css').read_text()+'\n'+(ROOT/'assets/css/ui-overhaul.css').read_text()+'\n'+(ROOT/'assets/css/theme-accessibility.css').read_text()+'\n'+(ROOT/'assets/css/theme-palettes.css').read_text()+'\n'+(ROOT/'assets/css/v2-workspace.css').read_text()
 js=(ROOT/'assets/js/app.js').read_text()
 logo='data:image/png;base64,'+base64.b64encode((ROOT/'assets/img/taskflow-logo-192.png').read_bytes()).decode()
 icons=(ROOT/'assets/img/icons.svg').read_text()
@@ -54,7 +54,7 @@ MOCK=r'''memberMode => {
 }'''
 
 def load(page, member=False):
-    page.set_content(html)
+    page.set_content(html.replace('id="v2-tools-drawer" hidden','id="v2-tools-drawer"'))
     page.add_style_tag(content=css)
     page.evaluate('''assets=>{
       document.body.insertAdjacentHTML('afterbegin',assets.icons);

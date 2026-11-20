@@ -26,7 +26,7 @@
 3. Deploy the updated application files, preserving your app key, local config and installer lock.
 4. Confirm authentication, MFA, user/team permissions, timer lifecycle, weekly report access, export security and core task flows against MySQL 8.
 
-**Older versions:** See [UPGRADE.md](UPGRADE.md) for the ordered 1.1.0 and 1.2.0 migrations.
+**Older versions:** See [UPGRADE.md](../../UPGRADE.md) for the ordered 1.1.0 and 1.2.0 migrations.
 
 ## Validation and release gates
 

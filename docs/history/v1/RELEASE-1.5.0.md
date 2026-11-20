@@ -11,7 +11,7 @@ This release adds a planning layer on top of TaskFlow's existing tasks, time ent
 
 | Desktop workload planning | Phone layout |
 | --- | --- |
-| ![TaskFlow workload planner with fictional sample data](screenshots/workload.png) | ![TaskFlow workload planner on phone](screenshots/workload-mobile.png) |
+| ![TaskFlow workload planner with fictional sample data](../../screenshots/workload.png) | ![TaskFlow workload planner on phone](../../screenshots/workload-mobile.png) |
 
 ## Safety and limits
 
@@ -29,4 +29,4 @@ This release adds a planning layer on top of TaskFlow's existing tasks, time ent
 
 ## Verification status
 
-PHP/JS lint, isolated validation tests, static source checks and mocked Chromium UI regressions run locally. The live MySQL integration workflow is included but has **not** been executed successfully in this environment. Complete MySQL integration, concurrency/security testing and performance benchmarks before a public production deployment. See [`TEST-RESULTS.md`](TEST-RESULTS.md).
+PHP/JS lint, isolated validation tests, static source checks and mocked Chromium UI regressions run locally. The live MySQL integration workflow is included but has **not** been executed successfully in this environment. Complete MySQL integration, concurrency/security testing and performance benchmarks before a public production deployment. See [`TEST-RESULTS.md`](../../TEST-RESULTS.md).

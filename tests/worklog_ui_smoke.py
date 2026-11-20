@@ -9,7 +9,7 @@ html = '<!DOCTYPE html>' + (root/'index.php').read_text().split('<!DOCTYPE html>
 html = re.sub(r'<\?php.*?\?>', '', html, flags=re.S)
 html = re.sub(r'<link rel="stylesheet"[^>]*>', '', html)
 html = re.sub(r'<script src="[^"]*">\s*</script>', '', html)
-styles = (root/'assets/css/style.css').read_text() + '\n' + (root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()
+styles = (root/'assets/css/style.css').read_text() + '\n' + (root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()+'\n'+(root/'assets/css/v2-workspace.css').read_text()
 script = (root/'assets/js/app.js').read_text()
 icons = (root/'assets/img/icons.svg').read_text()
 logo = 'data:image/png;base64,'+base64.b64encode((root/'assets/img/taskflow-logo-192.png').read_bytes()).decode()
@@ -48,7 +48,7 @@ mock = r'''() => {
 }'''
 
 def load(page):
-    page.set_content(html)
+    page.set_content(html.replace('id="v2-tools-drawer" hidden','id="v2-tools-drawer"'))
     page.add_style_tag(content=styles)
     page.evaluate("""(asset)=>{
       document.body.insertAdjacentHTML('afterbegin',asset.icons);
@@ -95,6 +95,7 @@ with sync_playwright() as p:
 
     desktop.locator('#close-task-modal').click()
     desktop.locator('[data-view="my-work"]').click()
+    desktop.locator('.v2-filter-details summary').click()
     desktop.locator('#my-work-mode').select_option('favorites')
     desktop.wait_for_function("window.calls.some(c=>c.name==='my_work.php'&&c.query.mode==='favorites')")
     assert desktop.locator('#my-work-results [data-task-id]').count()>=1

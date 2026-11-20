@@ -19,6 +19,6 @@ Release date: November 17, 2026. **Staging release candidate.**
 
 ## Upgrade and testing
 
-From v1.15.0: back up and restore-test the database and private keys; apply `docs/migrations/1.16.0.sql` once on MySQL 8 staging, deploy the updated files and preserve the existing installation lock. From older releases, apply each missing migration in order. See [Upgrade guide](UPGRADE.md) and [Test results](TEST-RESULTS.md).
+From v1.15.0: back up and restore-test the database and private keys; apply `docs/migrations/1.16.0.sql` once on MySQL 8 staging, deploy the updated files and preserve the existing installation lock. From older releases, apply each missing migration in order. See [Upgrade guide](../../UPGRADE.md) and [Test results](../../TEST-RESULTS.md).
 
 **Not yet verified in this environment:** live MySQL 8 migration/concurrent responses, full authenticated end-to-end HTTP access control, penetration testing, email delivery, and load testing. Browser smoke tests use mocked APIs.

@@ -9,7 +9,7 @@ from playwright.sync_api import sync_playwright
 ROOT = Path(__file__).resolve().parent.parent
 CASES = [
     # (synthetic fixture, loader, sidebar view, selectors with required 4.5:1)
-    ('design_ui_smoke.py','load_ui','my-work',['.topbar h1','.topbar-overline','.work-section-head h3','.search-result strong','.search-result small','.view-description']),
+    ('design_ui_smoke.py','load_ui','my-work',['.topbar h1','.topbar-overline','.work-section-head h3','.search-result strong','.search-result small','.v2-task-count']),
     ('design_ui_smoke.py','load_ui','board',['.board-task-open','.board-lane h3','.status-pill','.priority-pill']),
     ('announcements_ui_smoke.py','load','announcements',['.announcement-card h3','.announcement-author','.announcement-stats','.announcement-actions span']),
     ('project_decisions_ui_smoke.py','initialize','project-decisions',['.decision-card h4','.decision-context','.decision-outcome strong','.decision-outcome p','.decision-project','.decision-meta span','.decision-summary span']),
@@ -52,7 +52,10 @@ with sync_playwright() as play:
         load_fixture(fixture,loader,page)
         for theme in ('light','dark'):
             page.evaluate('(value)=>{document.documentElement.dataset.theme=value}',theme)
-            page.locator(f'.nav-item[data-view="{view}"]').first.click()
+            target=page.locator(f'.nav-item[data-view="{view}"]').first
+            if not target.is_visible():
+                page.locator('#v2-tools-toggle').click()
+            target.click()
             page.wait_for_timeout(180)
             for selector in selectors:
                 result=page.evaluate(JS,selector)

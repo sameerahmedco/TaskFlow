@@ -20,6 +20,6 @@ No email broadcast or push service is included. Acknowledgements are a record of
 
 ## Deploy and validate
 
-From 1.16.0, back up and restore-test before applying the 1.17.0 migration **once** to MySQL 8 staging. Deploy files without changing APP_KEY, private configuration, or installation lock. Test manager and member roles, cross-team API requests, expiry boundaries, and concurrent acknowledgements on real MySQL. See [Upgrade](UPGRADE.md) and [Tests](TEST-RESULTS.md).
+From 1.16.0, back up and restore-test before applying the 1.17.0 migration **once** to MySQL 8 staging. Deploy files without changing APP_KEY, private configuration, or installation lock. Test manager and member roles, cross-team API requests, expiry boundaries, and concurrent acknowledgements on real MySQL. See [Upgrade](../../UPGRADE.md) and [Tests](../../TEST-RESULTS.md).
 
 **Outstanding:** Live MySQL integration, adversarial security assessment, concurrency testing, and high-volume load profiling. Mocked browser and source lint tests are not production certification.

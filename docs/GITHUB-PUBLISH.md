@@ -1,28 +1,45 @@
-# Before publishing TaskFlow on GitHub
+# Publish TaskFlow v2 to GitHub
 
-1. Check `git status`, `git diff` and `git ls-files` for secrets or personal data. `.gitignore` excludes `config/config.local.php`, `.installed`, `.setup-key`, `.env*`, logs and vendor assets. **Gitignore does not remove already-tracked secrets or prior commit history.** Scan the full history if previously committed.
-2. Never include a production database export, screenshot with personal data, SMTP password, private keys or setup token.
-3. Keep `config/config.local.php.example` populated only with non-working placeholders. Review sample configs before every release.
-4. Enable branch protection, pull-request reviews, secret scanning, Dependabot and private vulnerability reporting in GitHub repository settings.
-5. Choose and add a legally appropriate `LICENSE` before calling the repository open-source (none was selected automatically).
-6. Tag releases and attach tested ZIP assets with SHA-256 checksums. Avoid sharing production runtime config.
-7. Check CI green, MySQL integration tests successful, security assessment complete and deployment checklist signed off before claiming production readiness.
+**Target repository:** https://github.com/sameerahmedco/taskflow · Default branch `main` · Source `VERSION=2.0.0`.
 
-To publish *your own* repository:
+TaskFlow v2 is a unified, GitHub-ready source tree (not 22 consecutive ZIP uploads). The **GitHub-ready ZIP is already flattened to the repository root** (`README.md`, `.github/`, `api/`, `assets/`, etc.). Do not add an enclosing `TaskFlow/` folder. An optional traditional source archive also contains a `TaskFlow/` parent folder for manual deployment. The historic v1 release notes are archived in `docs/history/v1/`; all SQL migrations remain available.
+
+## Safe workflow: feature branch + pull request
+
+Clone the current repository into a separate working folder, then extract the **flattened** `TaskFlow-v2.0.0-GitHub-Ready.zip` into that clone:
 
 ```bash
-cd TaskFlow
-git init
-git add .
-git commit -m "TaskFlow 1.21.0: accessible dual-theme UI"
-# Create your own empty GitHub repository in the GitHub UI, then:
-git remote add origin https://github.com/YOUR-ORG/YOUR-REPO.git
-git branch -M main
-git push -u origin main
+git clone https://github.com/sameerahmedco/taskflow.git taskflow-v2-release
+cd taskflow-v2-release
+git switch -c release/v2.0.0
+# Move tracked v1 release notes out of the active docs location.
+# Their v2 copies live under docs/history/v1/.
+git rm -- docs/RELEASE-1*.md
+# Extract the flat GitHub-ready ZIP at the repository root.
+# Adjust /path/to/ to the downloaded ZIP location.
+unzip -o /path/to/TaskFlow-v2.0.0-GitHub-Ready.zip -d .
+# Verify no local secrets or environment-specific files are staged.
+git status --short
+git add -A
+git diff --cached --stat
+git diff --cached --check
+git commit -m "TaskFlow v2.0.0: unified features and workspace redesign"
+git push -u origin release/v2.0.0
 ```
 
-No remote repository is created by the source ZIP.
+Open a pull request from `release/v2.0.0` into `main`. Review changed files and screenshots, wait for GitHub CI (lint, security, browser contrast, MySQL integration), then merge using the repository's normal safeguards. Finally tag `v2.0.0` and create a GitHub Release.
 
-## TaskFlow GitHub checks
+**Do not force-push `main`** or replace history; v2 consolidation is in the source/docs, not a rewrite of the Git commit DAG. Avoid committing private config, setup keys, installation locks, `.env` or logs.
 
-Keep both workflow files in `.github/workflows/`: `ci.yml` checks syntax, source regression and no-DB feature vectors; `mysql-integration.yml` provisions a disposable MySQL 8 service and checks the fresh schema, MFA, dependencies, templates, recurring tasks, active timers, timesheet review audit records and milestones. The latter has **not been run locally** and should be observed on your first pull request. Choose a LICENSE before making the project public, and never commit `.installed`, `.setup-key` or private DB configs.
+## Before merging
+
+- [ ] `VERSION`, README, installer and app header all show v2.0.0.
+- [ ] README screenshots are white-background Light previews (verified with `tests/readme_screenshots_unit.py`).
+- [ ] All v1 feature modules and 25 prior migrations are present.
+- [ ] PHPUnit-style checks, PHP lint and JS check pass.
+- [ ] Browser regression passes in mobile, light and dark mode.
+- [ ] Real MySQL staging upgrade and role authorization checks pass.
+- [ ] Fresh installation, persistent sessions, password recovery, MFA, attachments and cron jobs tested.
+- [ ] GitHub authentication has write rights; the repository owner approves the PR.
+
+**GitHub connector state (2026-11-20):** the active integration can read `sameerahmedco/taskflow` but has `push=false`; therefore no direct remote write was performed by ChatGPT.

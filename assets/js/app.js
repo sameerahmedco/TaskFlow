@@ -1776,8 +1776,8 @@
 
     container.innerHTML = `
       <div class="tab-bar">
-        <button class="tab-btn ${state.taskTab === 'add' ? 'active' : ''}" data-tab="add">+ Add Task</button>
-        <button class="tab-btn ${state.taskTab === 'view' ? 'active' : ''}" data-tab="view">View Tasks</button>
+        <button class="tab-btn ${state.taskTab === 'add' ? 'active' : ''}" data-tab="add">+ New task</button>
+        <button class="tab-btn ${state.taskTab === 'view' ? 'active' : ''}" data-tab="view">List view</button>
         <button class="tab-btn ${state.taskTab === 'pending' ? 'active' : ''}" data-tab="pending">Pending</button>
         <button class="tab-btn ${state.taskTab === 'completed' ? 'active' : ''}" data-tab="completed">Completed</button>
       </div>
@@ -3821,19 +3821,34 @@
     const firstName = String(state.user?.name || 'there').trim().split(/\s+/)[0];
     const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
     const dateLabel = new Intl.DateTimeFormat(undefined,{weekday:'long',month:'long',day:'numeric'}).format(new Date());
-    container.innerHTML = `<section class="work-hero" aria-labelledby="work-greeting">
-      <div class="work-hero-main"><div class="work-eyebrow"><span class="work-hero-dot"></span> YOUR PERSONAL WORKSPACE <span class="work-eyebrow-separator">/</span> ${esc(dateLabel)}</div>
-      <h2 id="work-greeting">${greeting}, <em>${esc(firstName)}.</em></h2>
-      <p>Keep the important work in sight. Everything else can wait.</p>
-      <div class="focus-shortcuts" role="group" aria-label="Quick filters"><button type="button" data-work-filter="overdue">Overdue tasks</button><button type="button" data-work-filter="today">Due today</button><button type="button" data-work-filter="week">This week</button><button type="button" data-work-filter="favorites">Starred</button></div>
-      </div><div class="work-hero-illustration" aria-hidden="true"><span class="hero-ring ring-one"></span><span class="hero-ring ring-two"></span><div class="hero-list-icon"><span></span><span></span><span></span></div><div class="hero-tick">&#10003;</div></div>
-      </section>
-      <section class="work-results-section"><div class="work-section-head"><div><span class="section-kicker">YOUR QUEUE</span><h3>Work that needs you</h3></div><span class="work-list-hint">Choose a task to view its details</span></div>
+    container.innerHTML = `<section class="work-hero v2-home-header" aria-labelledby="work-greeting">
+      <div class="work-hero-main"><div class="work-eyebrow">MY WORK <span class="work-eyebrow-separator">•</span> ${esc(dateLabel)}</div>
+      <h2 id="work-greeting">${greeting}, ${esc(firstName)} <span class="v2-home-wave" aria-hidden="true">✳</span></h2>
+      <p>Here’s what needs your attention today.</p></div>
+    </section>
+    <div class="v2-home-grid"><section class="work-results-section v2-task-stream">
+      <div class="work-section-head"><div><span class="section-kicker">PERSONAL QUEUE</span><h3>My tasks</h3></div>
+      <span class="v2-task-count" id="v2-task-count" aria-live="polite">Your current work</span></div>
+      <div class="focus-shortcuts" role="group" aria-label="Quick task filters"><button type="button" data-work-filter="overdue">Overdue</button><button type="button" data-work-filter="today">Today</button><button type="button" data-work-filter="week">Next 7 days</button><button type="button" data-work-filter="favorites">Starred</button></div>
+      <details class="v2-filter-details"><summary><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#sliders"></use></svg>Advanced filters <span aria-hidden="true">⌄</span></summary>
       <form class="search-form" id="my-work-filters" aria-label="Filter your work">
         <select id="my-work-mode" aria-label="My work type"><option value="all">Created or assigned</option><option value="assigned">Assigned to me</option><option value="created">Created by me</option><option value="favorites">Starred tasks</option></select>
         <select id="my-work-due" aria-label="Due date"><option value="all">Any due date</option><option value="overdue">Overdue</option><option value="today">Due today</option><option value="week">Next 7 days</option><option value="upcoming">Upcoming</option><option value="none">Without due date</option></select>
         <select id="my-work-status" aria-label="Completion"><option value="open">Open tasks</option><option value="done">Completed</option><option value="all">All statuses</option></select>
-      </form><div class="search-results" id="my-work-results" aria-live="polite"></div></section>`;
+      </form></details>
+      <div class="search-results" id="my-work-results" aria-live="polite"></div>
+      </section>
+      <aside class="v2-home-aside" aria-label="Quick workspace access">
+        <div class="v2-aside-card v2-focus-card"><div class="v2-aside-eyebrow">KEEP MOVING</div><h3>Stay in flow</h3>
+        <p>A few places to pick up where you left off.</p>
+        <button type="button" data-v2-open="board"><span class="v2-mini-symbol">▦</span><span>Open the team board<small>Track progress across lanes</small></span><span aria-hidden="true">↗</span></button>
+        <button type="button" data-v2-open="calendar"><span class="v2-mini-symbol">◫</span><span>Check your calendar<small>Upcoming deadlines</small></span><span aria-hidden="true">↗</span></button>
+        <button type="button" data-v2-open="inbox"><span class="v2-mini-symbol">✉</span><span>Review your inbox<small>Updates from teammates</small></span><span aria-hidden="true">↗</span></button></div>
+        <div class="v2-aside-card v2-tip-card"><span class="v2-aside-eyebrow">TASKFLOW TIP</span><p>Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> to jump to any tool.</p></div>
+      </aside></div>`;
+    container.querySelectorAll('[data-v2-open]').forEach(b=>b.addEventListener('click',()=>{
+      document.querySelector(`.nav-item[data-view="${b.dataset.v2Open}"]`)?.click();
+    }));
     container.querySelectorAll('[data-work-filter]').forEach(button => button.addEventListener('click',()=>{
       const filter=button.dataset.workFilter;
       const mode=document.getElementById('my-work-mode'), due=document.getElementById('my-work-due');
@@ -3859,6 +3874,8 @@
       if (!document.getElementById('my-work-results') || state.currentView !== 'my-work') return;
       result.querySelector('#my-work-more')?.remove();
       if (!append) result.innerHTML = '';
+      const loadedCount=document.getElementById('v2-task-count');
+      if(loadedCount){const prior=append ? Number(loadedCount.dataset.loaded||0):0; const count=prior+data.tasks.length;loadedCount.dataset.loaded=String(count);loadedCount.textContent=count+' task'+(count===1?'':'s')+' loaded';}
       if (!data.tasks.length && !append) { result.innerHTML = '<div class="empty-state"><h3>All clear</h3><p>No tasks match your filters.</p></div>'; return; }
       const list = document.createElement('div');
       list.className='search-result-list';
@@ -3891,7 +3908,7 @@
     const container=document.getElementById('view-container');
     if (!state.currentTeamId) { container.innerHTML=emptyTeamState(); return; }
     Object.keys(boardCursors).forEach(k => delete boardCursors[k]);
-    container.innerHTML = `<div class="feature-intro"><h2>Team board</h2><p>Move your own or assigned work through the workflow. Managers can move all team tasks.</p></div>
+    container.innerHTML = `<div class="v2-view-intro"><div><span>TEAM PROJECTS</span><h2>Board overview</h2><p>Follow work as it moves from idea to done.</p></div><span class="v2-view-intro-hint">Drag a card to update its status</span></div>
       <div class="board-toolbar"><label><input type="checkbox" id="board-mine" ${boardMine?'checked':''}> Only my work</label><button type="button" class="btn btn-ghost" id="board-refresh">Refresh board</button></div>
       <div class="kanban-board" id="kanban-board">${boardStatuses.map(([status,label]) => `<section class="board-lane" data-lane="${status}" aria-label="${label}">
         <h3><span class="status-pill status-${status}">${label}</span><span class="board-count" id="board-count-${status}"></span></h3>

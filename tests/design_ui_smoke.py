@@ -51,9 +51,10 @@ MOCK = r"""() => {
 # Inline assets for local, network-free Playwright execution. The product itself
 # continues to load normal same-origin CSS and the cached icon sprite.
 icons_svg=(root/'assets/img/icons.svg').read_text()
-style=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()
+style=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()+'\n'+(root/'assets/css/v2-workspace.css').read_text()
 app_js=(root/'assets/js/app.js').read_text()
 ui_js=(root/'assets/js/ui-enhancements.js').read_text()
+v2_js=(root/'assets/js/v2-workspace.js').read_text()
 brand_png='data:image/png;base64,'+base64.b64encode((root/'assets/img/taskflow-logo-192.png').read_bytes()).decode()
 def paint_brand(page):
     page.evaluate("""(url) => {
@@ -77,6 +78,7 @@ def load_ui(page, authenticated=False):
         page.evaluate(MOCK)
         page.add_script_tag(content=app_js)
         page.add_script_tag(content=ui_js)
+        page.add_script_tag(content=v2_js)
         page.wait_for_selector('#app:not(.hidden)',timeout=15000)
         page.wait_for_selector('#my-work-results .search-result',timeout=15000)
         paint_brand(page)
@@ -98,9 +100,13 @@ with sync_playwright() as p:
     page.on('pageerror', lambda e: errors.append(str(e)))
     load_ui(page, authenticated=True)
     assert page.locator('#view-title').inner_text() == 'My Work'
-    assert 'v1.22.0' in page.locator('.sidebar-version').inner_text()
+    assert 'v2.0.0' in page.locator('.sidebar-version').inner_text()
     assert page.locator('.nav-svg').count()>15
     assert page.locator('.sidebar-finder').is_visible()
+    assert page.locator('#v2-tools-drawer').is_hidden()
+    assert page.locator('[data-v2-view="my-work"]').get_attribute('aria-current')=='page'
+    page.locator('#v2-tools-toggle').click()
+    assert page.locator('#v2-tools-drawer').is_visible()
     assert page.locator('.nav-group-toggle').count() >= 3
     page.locator('#nav-filter').fill('milestones')
     assert page.locator('[data-view="milestones"]').is_visible()
@@ -122,12 +128,14 @@ with sync_playwright() as p:
     assert page.locator('#quick-switch-modal').is_visible()
     page.keyboard.press('Escape')
     assert page.locator('#quick-switch-modal').is_hidden()
-    page.locator('[data-view="my-work"]').click()
+    page.locator('[data-v2-view="my-work"]').click()
     page.wait_for_selector('.work-hero')
     assert page.locator('.focus-shortcuts button').count() == 4
     page.locator('[data-work-filter="today"]').click()
     assert page.locator('#my-work-due').input_value() == 'today'
+    page.locator('.v2-filter-details summary').click()
     page.locator('#my-work-due').select_option('all')
+    page.locator('.v2-filter-details summary').click()
     page.locator('#density-switch').click()
     assert page.evaluate('document.documentElement.dataset.density') == 'compact'
     page.locator('#density-switch').click()
@@ -146,13 +154,14 @@ with sync_playwright() as p:
         assert page.evaluate("localStorage.getItem('taskflow-appearance')") == 'dark'
     except Exception:
         pass  # about:blank test document does not have localStorage origin
-    page.locator('[data-view="board"]').click()
+    page.locator('[data-v2-view="board"]').click()
     page.wait_for_selector('.board-card')
     assert page.locator('.board-lane').count() == 4
     paint_brand(page)
     page.screenshot(path=str(screens/'board-dark.png'),full_page=True)
     page.locator('#theme-switch').click()
     assert page.evaluate("document.documentElement.dataset.theme") == 'light'
+    page.wait_for_timeout(450)
     paint_brand(page)
     page.screenshot(path=str(screens/'board.png'),full_page=True)
     page.locator('#quick-add-task').click()
@@ -161,7 +170,7 @@ with sync_playwright() as p:
     assert page.locator('#at-assignees option').count() == 1
     page.locator('#at-title').fill('Important action')
     page.locator('#at-desc').fill('New task description')
-    page.locator('[data-view="inbox"]').click()
+    page.locator('[data-v2-view="inbox"]').click()
     page.wait_for_selector('.inbox-item')
     page.screenshot(path=str(screens/'inbox.png'),full_page=True)
     print('PASS: login layout, workspace navigation, search, Ctrl+K, appearance switch, board, quick task creation, inbox')
@@ -174,7 +183,7 @@ with sync_playwright() as p:
     assert mobile.locator('[data-mobile-view="my-work"]').get_attribute('aria-current') == 'page'
     mobile.locator('#mobile-menu-btn').click()
     assert mobile.locator('#mobile-menu-btn').get_attribute('aria-expanded')=='true'
-    mobile.locator('[data-view="board"]').click()
+    mobile.locator('[data-v2-view="board"]').click()
     mobile.wait_for_selector('.board-card')
     assert mobile.locator('#mobile-menu-btn').get_attribute('aria-expanded')=='false'
     assert mobile.locator('[data-mobile-view="board"]').get_attribute('aria-current') == 'page'

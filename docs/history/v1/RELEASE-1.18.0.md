@@ -18,7 +18,7 @@ TaskFlow now provides a team-scoped **Project risks** register. Any member of a 
 
 ## Deploy
 
-After a complete database and config backup, apply `docs/migrations/1.18.0.sql` **once** to a staged v1.17.0 database. Deploy the new application without replacing the original private key/configuration or rerunning installation. Fresh installs include the new table in `schema.sql`. See [Upgrade guide](UPGRADE.md).
+After a complete database and config backup, apply `docs/migrations/1.18.0.sql` **once** to a staged v1.17.0 database. Deploy the new application without replacing the original private key/configuration or rerunning installation. Fresh installs include the new table in `schema.sql`. See [Upgrade guide](../../UPGRADE.md).
 
 ## Test scope and outstanding gates
 

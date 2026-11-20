@@ -9,6 +9,13 @@ $check = static function (bool $ok, string $why) use (&$failures): void {
 };
 $src = static fn(string $path): string => file_get_contents($root . '/' . $path);
 $schema = $src('schema.sql');
+$check(is_file($root.'/assets/css/v2-workspace.css') && is_file($root.'/assets/js/v2-workspace.js')
+    && str_contains($src('index.php'),'id="v2-tools-toggle"')
+    && str_contains($src('index.php'),'id="v2-view-tabs"'), 'v2 contextual workspace and streamlined tools navigation are installed');
+$check(str_contains($src('assets/js/v2-workspace.js'),'source=(view)')
+    && str_contains($src('assets/js/v2-workspace.js'),'.nav-item[data-view]'), 'v2 shortcuts reuse authorized navigation instead of duplicating routing');
+$check(str_contains($src('README.md'),'TaskFlow v2.0.0')
+    && !str_contains($src('README.md'),'### New in 1.'), 'public README consolidates v1 features into v2');
 $check(!str_contains($schema, 'admin@example.com') && !preg_match('/INSERT\\s+INTO\\s+users\\s*\\(/i', $schema), 'fresh install does not seed a default administrator');
 $check(str_contains($src('install/index.php'), 'hash_equals($expectedKey, $sentKey)'), 'installer checks unique setup key');
 $check(str_contains($src('install/index.php'), 'GET_LOCK('), 'installer serializes concurrent requests');
@@ -100,10 +107,10 @@ $check(str_contains($src('index.php'),'appearance-preference') && str_contains($
     && str_contains($src('assets/js/app.js'),'systemThemeQuery'), 'light/dark/system selector and early theme boot are wired');
 $check(is_file($root.'/tests/theme_contrast_ui_smoke.py') && str_contains($src('tests/theme_contrast_ui_smoke.py'),'WCAG'),
     'browser-based 1.21 dual-theme contrast regressions included');
-$check(trim($src('VERSION')) === '1.22.0' && !str_contains($src('README.md'), 'TaskFlow NEXT'), 'TaskFlow version and product name are consistent');
+$check(trim($src('VERSION')) === '2.0.0' && !str_contains($src('README.md'), 'TaskFlow NEXT'), 'TaskFlow version and product name are consistent');
 $check(is_file($root . '/assets/css/design-system.css') && str_contains($src('index.php'),'id="theme-switch"'), 'TaskFlow includes its own lightweight appearance control');
 $check(str_contains(substr($src('assets/js/app.js'), strpos($src('assets/js/app.js'), 'function renderAddTaskForm()'), 1500), 'const assigneeOptions = state.members.filter'), 'task creation uses an in-scope member list');
-$check(str_contains($src('install/index.php'), 'SETUP · VERSION 1.22.0') && is_file($root . '/install/assets/installer-v1.css'), 'organization setup uses current branded wizard');
+$check(str_contains($src('install/index.php'), 'SETUP · VERSION 2.0.0') && is_file($root . '/install/assets/installer-v1.css'), 'organization setup uses current branded wizard');
 $check(str_contains($src('api/calendar.php'), 'require_team_access') && str_contains($src('api/calendar.php'), 'LIMIT 401'), 'calendar is team-scoped and bounded');
 $check(str_contains($src('api/templates.php'), 'require_team_access') && str_contains($src('api/templates.php'), 'require_csrf()') && str_contains($src('api/templates.php'), 'beginTransaction'), 'template management uses team permissions, CSRF, transactions');
 $check(str_contains($src('api/tasks.php'), 'Template not found in this team') && str_contains($src('api/tasks.php'), 'templateItems'), 'server-side template application verifies team boundary');

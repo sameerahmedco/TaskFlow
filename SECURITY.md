@@ -123,3 +123,7 @@ The page switcher and navigation filter operate only on the existing client-side
 ## Theme and UI accessibility (1.21.0)
 
 Theme preferences are stored **only in the browser's localStorage** and are not sent to TaskFlow's server. The new prepaint theme initializer and theme stylesheet load from the same origin without external libraries or third-party services. The UI still uses normal server-side authorization; no styling or appearance choice can grant permissions. The new targeted color-contrast tests improve legibility but do not replace accessibility, cross-browser or penetration testing.
+
+## TaskFlow v2 UI release (2026-11-20)
+
+The v2 navigation and theme redesign does not change API authorization or create new roles. Pinned destinations, global search and Explore all tools are **presentation controls only**. Every API endpoint must continue to enforce its own session, role, team and CSRF checks. A hidden menu item does not secure an endpoint. Test the new UI in staging with both manager and member accounts before any public production rollout.

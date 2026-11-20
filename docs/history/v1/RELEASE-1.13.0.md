@@ -15,7 +15,7 @@ Date spans are inclusive and limited to 45 days, starting no earlier than 30 day
 
 ## Upgrade
 
-Apply `docs/migrations/1.13.0.sql` once to a backed-up **1.12.0** database. Keep all private configuration, keys and the `.installed` lock. Review the [upgrade guide](UPGRADE.md) for tests and rollback prerequisites.
+Apply `docs/migrations/1.13.0.sql` once to a backed-up **1.12.0** database. Keep all private configuration, keys and the `.installed` lock. Review the [upgrade guide](../../UPGRADE.md) for tests and rollback prerequisites.
 
 ## Verification
 
