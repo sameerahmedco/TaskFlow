@@ -192,6 +192,8 @@
   }
   function openCommands(){
     if (app.classList.contains('hidden') || !dialog || !input) return;
+    // Keep the page switcher from navigating behind an unfinished save dialog.
+    if (['task-modal','prompt-modal'].some(id=>!$('#'+id)?.classList.contains('hidden'))) return;
     lastFocus=document.activeElement;
     dialog.classList.remove('hidden');
     document.body.classList.add('command-open');
@@ -246,8 +248,8 @@
     densityButton.title=compact?'Use comfortable layout':'Use compact layout';
     try{localStorage.setItem(densityKey,compact?'compact':'comfortable');}catch(_){}
   }
-  let storedDensity='comfortable';
-  try{storedDensity=localStorage.getItem(densityKey)||'comfortable';}catch(_){}
+  let storedDensity='compact';
+  try{storedDensity=localStorage.getItem(densityKey)||'compact';}catch(_){}
   if(densityButton){applyDensity(storedDensity);densityButton.addEventListener('click',()=>applyDensity(document.documentElement.dataset.density==='compact'?'comfortable':'compact'));}
 
   // Avatar initials must contrast against an arbitrary, user-supplied avatar

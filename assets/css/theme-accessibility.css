@@ -1,4 +1,4 @@
-/* TaskFlow 1.21.0 — Accessible dual-theme surfaces
+/* TaskFlow v3 — Accessible dual-theme surfaces
  * Loaded after the base feature styles and v1.20 UI. All new semantic tokens
  * are defined for both modes, so legacy var() fallbacks cannot turn panels
  * white while their text follows the dark palette.

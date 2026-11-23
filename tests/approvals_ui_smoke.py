@@ -9,7 +9,7 @@ html='<!DOCTYPE html>'+(root/'index.php').read_text().split('<!DOCTYPE html>',1)
 html=re.sub(r'<\?php.*?\?>','',html,flags=re.S)
 html=re.sub(r'<link rel="stylesheet"[^>]*>','',html)
 html=re.sub(r'<script src="[^"]*">\s*</script>','',html)
-styles=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()+'\n'+(root/'assets/css/v2-workspace.css').read_text()
+styles=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()+'\n'+(root/'assets/css/workspace.css').read_text()+'\n'+(root/'assets/css/v3-refinement.css').read_text()+'\n'+(root/'assets/css/v3-compact.css').read_text()
 script=(root/'assets/js/app.js').read_text()
 icons=(root/'assets/img/icons.svg').read_text()
 logo='data:image/png;base64,'+base64.b64encode((root/'assets/img/taskflow-logo-192.png').read_bytes()).decode()
@@ -107,6 +107,8 @@ with sync_playwright() as p:
     print('PASS manager approval, change request and note')
     desktop.locator('#timesheet-scope').select_option('mine')
     desktop.locator('.timesheet-task').click()
+    desktop.wait_for_selector('#tm-tab-files')
+    desktop.locator('#tm-tab-files').click()
     desktop.wait_for_selector('.worklog-entry')
     assert desktop.locator('#tm-log-time').count()==0
     assert desktop.locator('.worklog-remove').count()==0

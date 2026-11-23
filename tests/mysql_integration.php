@@ -368,6 +368,43 @@ $duplicateKeyBlocked=false;
 try{$pdo->prepare('INSERT INTO task_attachments(task_id,team_id,uploaded_by,filename,storage_key,mime_type,size_bytes) VALUES (?,?,?,?,?,?,?)')->execute([$monthlySource,$teamId,$id,'bad.pdf',$storageKey,'application/pdf',12]);}
 catch(PDOException $e){$duplicateKeyBlocked=$e->getCode()==='23000';}
 $assert($duplicateKeyBlocked,'random attachment storage key has unique DB constraint');
+// Private attachment deletion must not lose the file when an audit/DB write fails.
+$privateTmp=sys_get_temp_dir().'/taskflow-attachment-mysql-'.bin2hex(random_bytes(8));
+mkdir($privateTmp,0700);
+$key2=str_repeat('c',64);
+$privatePath=taskflow_attachment_path($privateTmp,$key2,true);
+file_put_contents($privatePath,'private QA payload');
+$pdo->prepare('INSERT INTO task_attachments(task_id,team_id,uploaded_by,filename,storage_key,mime_type,size_bytes) VALUES (?,?,?,?,?,?,?)')
+    ->execute([$monthlySource,$teamId,$id,'private.txt',$key2,'text/plain',18]);
+$privateAttId=(int)$pdo->lastInsertId();
+$failureCaught=false;$moved=null;
+try{
+    $pdo->beginTransaction();
+    $moved=taskflow_attachment_quarantine($privatePath);
+    $pdo->prepare('DELETE FROM task_attachments WHERE id=?')->execute([$privateAttId]);
+    // A guaranteed invalid FK mimics a failure while writing the audit event.
+    $pdo->prepare('INSERT INTO activity_log(team_id,task_id,user_id,action,detail) VALUES (?,?,?,?,?)')
+        ->execute([$teamId,$monthlySource,2147483647,'attachment_removed','synthetic failure']);
+    $pdo->commit();
+}catch(PDOException $e){$failureCaught=$e->getCode()==='23000';}
+finally{
+    if($pdo->inTransaction())$pdo->rollBack();
+    if($moved!==null)taskflow_attachment_restore($moved,$privatePath);
+}
+$st=$pdo->prepare('SELECT COUNT(*) FROM task_attachments WHERE id=?');$st->execute([$privateAttId]);
+$assert($failureCaught && (int)$st->fetchColumn()===1 && file_get_contents($privatePath)==='private QA payload',
+    'failed attachment audit rolls back DB deletion and restores private bytes');
+$pdo->beginTransaction();
+$moved=taskflow_attachment_quarantine($privatePath);
+$pdo->prepare('DELETE FROM task_attachments WHERE id=?')->execute([$privateAttId]);
+$pdo->prepare('INSERT INTO activity_log(team_id,task_id,user_id,action,detail) VALUES (?,?,?,?,?)')
+    ->execute([$teamId,$monthlySource,$id,'attachment_removed','private.txt']);
+$pdo->commit();
+if($moved!==null)unlink($moved);
+$st->execute([$privateAttId]);
+$assert((int)$st->fetchColumn()===0 && !file_exists($privatePath),
+    'completed attachment deletion commits audit and removes private bytes');
+rmdir(dirname($privatePath));rmdir($privateTmp);
 $pdo->prepare('DELETE FROM tasks WHERE id=?')->execute([$monthlySource]);
 $st=$pdo->prepare('SELECT COUNT(*) FROM task_attachments WHERE id=?');$st->execute([$attId]);
 $assert((int)$st->fetchColumn()===0,'task deletion cascades file metadata; disk cleanup remains a CLI operation');
@@ -609,6 +646,318 @@ try{$pdo->prepare("INSERT INTO risk_reminder_deliveries(risk_id,user_id,due_date
   ->execute([$riskId,$memberId,gmdate('Y-m-d')]);}
 catch(PDOException $e){$duplicateReminderRejected=$e->getCode()==='23000';}
 $assert($duplicateReminderRejected,'risk reminders cannot double-record same notification');
+// v2.1.0: real project overview aggregates and cross-team isolation.
+require_once __DIR__.'/../includes/project_overview.php';
+$today=gmdate('Y-m-d');
+$yesterday=gmdate('Y-m-d',strtotime('-1 day'));
+$tomorrow=gmdate('Y-m-d',strtotime('+1 day'));
+$pdo->prepare('INSERT INTO tasks(list_id,title,status,priority,due_date,created_by) VALUES (?,?,?,?,?,?)')
+    ->execute([$riskListId,'Due today','to_do','high',$today,$id]);
+$pdo->prepare('INSERT INTO tasks(list_id,title,status,priority,due_date,created_by) VALUES (?,?,?,?,?,?)')
+    ->execute([$riskListId,'Already late','in_progress','urgent',$yesterday,$id]);
+$pdo->prepare('INSERT INTO tasks(list_id,title,status,priority,due_date,created_by) VALUES (?,?,?,?,?,?)')
+    ->execute([$riskListId,'Finished','done','normal',$yesterday,$id]);
+$pdo->prepare('INSERT INTO milestones(list_id,title,description,due_date,created_by) VALUES (?,?,?,?,?)')
+    ->execute([$riskListId,'Project checkpoint','Check readiness.',$tomorrow,$id]);
+$pdo->prepare('INSERT INTO project_updates(team_id,list_id,author_id,author_name,status,summary,next_steps) VALUES (?,?,?,?,?,?,?)')
+    ->execute([$teamId,$riskListId,$id,'Test Admin','at_risk','Confirm external dependency.','Update milestones.']);
+$snapshot=taskflow_project_overview_snapshot($pdo,$teamId,$riskListId);
+$assert($snapshot['project']['id']===$riskListId,'overview selects only requested project');
+$assert($snapshot['tasks']['counts']['total']===3 && $snapshot['tasks']['counts']['completed']===1,'overview aggregates tasks');
+$assert($snapshot['tasks']['counts']['overdue']===1 && $snapshot['tasks']['counts']['due_soon']===1,'overview separates overdue and due soon');
+$assert($snapshot['tasks']['progress']===33 && $snapshot['tasks']['health']==='at_risk','overview evaluates project health');
+$assert(count($snapshot['tasks']['upcoming'])===2,'overview shortlist excludes completed tasks');
+$assert($snapshot['milestones']['counts']['total']===1 && count($snapshot['milestones']['items'])===1,'overview active milestones scoped to list');
+$assert($snapshot['risks']['counts']['active']===1 && $snapshot['risks']['counts']['high_count']===1,'overview active risk counter');
+$assert($snapshot['decisions']['pending']===0 && count($snapshot['decisions']['items'])===1,'overview includes deferred decision but not pending count');
+$assert($snapshot['latest_update']['status']==='at_risk','overview returns latest project update');
+$crossTeamOverviewBlocked=false;
+try{taskflow_project_overview_snapshot($pdo,$otherTeamId,$riskListId);}catch(DomainException $e){$crossTeamOverviewBlocked=true;}
+$assert($crossTeamOverviewBlocked,'overview helper cannot cross team boundary');
+// v3: transactional CSV task import and project/team reference protection.
+require_once __DIR__.'/../includes/task_import.php';
+$importRows=[
+  ['title'=>'First imported task','description'=>'Created from CSV','priority'=>'high','due_date'=>'2027-04-14','estimate_hours'=>'1.5'],
+  ['title'=>'Second imported task','priority'=>'low']
+];
+$importIds=taskflow_import_insert_rows($pdo,$teamId,$listId,$memberId,true,$importRows);
+$assert(count($importIds)===2 && $importIds[0]>0 && $importIds[1]>$importIds[0],'CSV import creates exactly two new tasks');
+$checkImport=$pdo->prepare('SELECT title,status,estimate_minutes,due_date FROM tasks WHERE id=? AND list_id=?');
+$checkImport->execute([$importIds[0],$listId]);$imported=$checkImport->fetch(PDO::FETCH_ASSOC);
+$assert($imported['title']==='First imported task' && $imported['status']==='to_do'
+  && (int)$imported['estimate_minutes']===90 && $imported['due_date']==='2027-04-14',
+  'CSV import correctly maps safe task data');
+$assigned=$pdo->prepare('SELECT COUNT(*) FROM task_assignees WHERE task_id=? AND user_id=?');
+$assigned->execute([$importIds[0],$memberId]);
+$assert((int)$assigned->fetchColumn()===1,'member CSV import assigns imported task to creator');
+$wrongTeamImport=false;
+try {taskflow_import_insert_rows($pdo,$otherTeamId,$listId,$memberId,true,[['title'=>'Invalid team import']]);}
+catch(DomainException $e){$wrongTeamImport=true;}
+$assert($wrongTeamImport,'cross-team task import rejected before changes');
+$countBeforeImport=$pdo->prepare('SELECT COUNT(*) FROM tasks WHERE list_id=?');
+$countBeforeImport->execute([$listId]);$beforeCount=(int)$countBeforeImport->fetchColumn();
+$invalidBatchRejected=false;
+try {taskflow_import_insert_rows($pdo,$teamId,$listId,$memberId,true,[['title'=>'Valid row'],['title'=>'Bad row','due_date'=>'2027-02-30']]);}
+catch(InvalidArgumentException $e){$invalidBatchRejected=true;}
+$countBeforeImport->execute([$listId]);
+$assert($invalidBatchRejected && (int)$countBeforeImport->fetchColumn()===$beforeCount,
+  'invalid batch rejected without partially creating tasks');
+// v3 task-list batch actions: strict date consistency, assignment FK, and transaction rollback.
+require_once __DIR__.'/../includes/bulk_actions.php';
+$assert(taskflow_bulk_action('due_date','2027-04-15',false)['field']==='due_date',
+  'validated bulk due date accepted for an editable task');
+$assert(!taskflow_bulk_due_date_compatible([['start_date'=>'2027-04-18']], '2027-04-15'),
+  'bulk validation rejects due dates preceding any selected task start');
+$pdo->prepare('UPDATE tasks SET start_date=? WHERE id=?')->execute(['2027-04-10',$importIds[0]]);
+$dueBefore=$pdo->prepare('SELECT due_date FROM tasks WHERE id=?');
+$dueBefore->execute([$importIds[0]]);
+$assert($dueBefore->fetchColumn()==='2027-04-14','bulk rollback test starts with expected date');
+$pdo->beginTransaction();
+$pdo->prepare('UPDATE tasks SET due_date=? WHERE id=?')->execute(['2027-04-19',$importIds[0]]);
+$pdo->rollBack();
+$dueBefore->execute([$importIds[0]]);
+$assert($dueBefore->fetchColumn()==='2027-04-14','rollback preserves old due date after rejected batch');
+$pdo->prepare('UPDATE tasks SET due_date=NULL WHERE id=?')->execute([$importIds[0]]);
+$dueBefore->execute([$importIds[0]]);
+$assert($dueBefore->fetchColumn()===null,'bulk clear due date supports SQL NULL');
+$assignmentChange=$pdo->prepare('DELETE FROM task_assignees WHERE task_id=? AND user_id=?');
+$assignmentChange->execute([$importIds[0],$memberId]);
+$assignmentLookup=$pdo->prepare('SELECT COUNT(*) FROM task_assignees WHERE task_id=? AND user_id=?');
+$assignmentLookup->execute([$importIds[0],$memberId]);
+$assert((int)$assignmentLookup->fetchColumn()===0,'bulk removal clears one selected assignment');
+$assignmentAdd=$pdo->prepare('INSERT IGNORE INTO task_assignees (task_id,user_id) VALUES (?,?)');
+$assignmentAdd->execute([$importIds[0],$memberId]);
+$assert($assignmentAdd->rowCount()===1,'bulk add inserts a missing assignment');
+$assignmentAdd->execute([$importIds[0],$memberId]);
+$assert($assignmentAdd->rowCount()===0,'bulk add does not create duplicate assignments');
+// v3 extension: start-date planning, effort estimates and team-tag batch operations.
+$assert(taskflow_bulk_action('start_date','2027-04-01',false)['field']==='start_date',
+  'start-date action accepts a valid calendar value');
+$assert(!taskflow_bulk_start_date_compatible([['due_date'=>'2027-04-03']], '2027-04-04'),
+  'start-date check rejects a start later than any selected task due date');
+$pdo->prepare('UPDATE tasks SET start_date=? WHERE id=?')->execute(['2027-04-01',$importIds[0]]);
+$dates=$pdo->prepare('SELECT start_date,due_date,estimate_minutes FROM tasks WHERE id=?');
+$dates->execute([$importIds[0]]);$row=$dates->fetch(PDO::FETCH_ASSOC);
+$assert($row['start_date']==='2027-04-01' && $row['due_date']===null,'batch start date recorded without changing due date');
+$pdo->prepare('UPDATE tasks SET start_date=NULL WHERE id=?')->execute([$importIds[0]]);
+$dates->execute([$importIds[0]]);
+$assert($dates->fetch(PDO::FETCH_ASSOC)['start_date']===null,'batch start-date clear persists NULL');
+$pdo->prepare('UPDATE tasks SET estimate_minutes=? WHERE id=?')->execute([150,$importIds[0]]);
+$dates->execute([$importIds[0]]);
+$assert((int)$dates->fetch(PDO::FETCH_ASSOC)['estimate_minutes']===150,'batch effort saved in minutes');
+$pdo->prepare('UPDATE tasks SET estimate_minutes=NULL WHERE id=?')->execute([$importIds[0]]);
+$dates->execute([$importIds[0]]);
+$assert($dates->fetch(PDO::FETCH_ASSOC)['estimate_minutes']===null,'batch effort clear persists NULL');
+$pdo->prepare('INSERT INTO tags(team_id,name,color) VALUES (?,?,?)')
+   ->execute([$otherTeamId,'Other-team label','#aa5588']);
+$otherTagId=(int)$pdo->lastInsertId();
+$tagCheck=$pdo->prepare('SELECT id FROM tags WHERE id=? AND team_id=?');
+$tagCheck->execute([$otherTagId,$teamId]);
+$assert($tagCheck->fetchColumn()===false,'tag authorization lookup refuses another team tag');
+$tagCheck->execute([$tagId,$teamId]);
+$assert((int)$tagCheck->fetchColumn()===$tagId,'tag authorization lookup permits owning team');
+$addTag=$pdo->prepare('INSERT IGNORE INTO task_tags(task_id,tag_id) VALUES (?,?)');
+$addTag->execute([$importIds[0],$tagId]);
+$assert($addTag->rowCount()===1,'batch label added to a previously untagged task');
+$addTag->execute([$importIds[0],$tagId]);
+$assert($addTag->rowCount()===0,'repeating bulk add does not duplicate tag relationship');
+$pdo->prepare('DELETE FROM task_tags WHERE task_id=? AND tag_id=?')->execute([$importIds[0],$tagId]);
+$tagCount=$pdo->prepare('SELECT COUNT(*) FROM task_tags WHERE task_id=? AND tag_id=?');
+$tagCount->execute([$importIds[0],$tagId]);
+$assert((int)$tagCount->fetchColumn()===0,'bulk remove deletes only selected label');
+$pdo->beginTransaction();
+$addTag->execute([$importIds[0],$tagId]);
+$pdo->rollBack();
+$tagCount->execute([$importIds[0],$tagId]);
+$assert((int)$tagCount->fetchColumn()===0,'transaction rollback prevents partially applied labels');
+// v3: inbox filters, recipient-scoped bulk changes, and same-team task copies.
+require_once __DIR__.'/../includes/inbox_triage.php';
+require_once __DIR__.'/../includes/task_copy.php';
+$pdo->prepare("INSERT INTO notification_log(user_id,category,title,body) VALUES (?,'mentions','Planning %_ check','Review release plan')")
+    ->execute([$id]);
+$ownedNote=(int)$pdo->lastInsertId();
+$pdo->prepare("INSERT INTO notification_log(user_id,category,title,body) VALUES (?,'mentions','Private message','Other recipient')")
+    ->execute([$memberId]);
+$foreignNote=(int)$pdo->lastInsertId();
+$lookup=$pdo->prepare('SELECT id FROM notification_log WHERE user_id=? AND category=? AND INSTR(title,?)>0');
+$lookup->execute([$id,'mentions','%_']);
+$assert((int)$lookup->fetchColumn()===$ownedNote,'notification search treats wildcard-like tokens literally');
+$batch=$pdo->prepare('UPDATE notification_log SET is_read=1 WHERE user_id=? AND id IN (?,?)');
+$batch->execute([$id,$ownedNote,$foreignNote]);
+$assert($batch->rowCount()===1,'user-scoped batch updates only owned notification');
+$checkNote=$pdo->prepare('SELECT is_read FROM notification_log WHERE id=?');
+$checkNote->execute([$foreignNote]);
+$assert((int)$checkNote->fetchColumn()===0,'another user notification remains unread');
+$pdo->prepare('UPDATE notification_log SET is_read=0 WHERE user_id=? AND id=?')->execute([$id,$ownedNote]);
+$checkNote->execute([$ownedNote]);
+$assert((int)$checkNote->fetchColumn()===0,'personal inbox can mark an item unread');
+$assert(taskflow_inbox_ids([$ownedNote])===[$ownedNote],'inbox batch input policy supports persisted ids');
+// Build one work definition containing a checklist, tag and assignee.
+$pdo->prepare('UPDATE tasks SET estimate_minutes=?,due_date=?,start_date=? WHERE id=?')
+    ->execute([180,'2027-05-01','2027-04-28',$importIds[0]]);
+$pdo->prepare('INSERT INTO checklist_items(task_id,content,is_done,position) VALUES (?,?,1,0)')
+    ->execute([$importIds[0],'Confirm staging readiness']);
+$pdo->prepare('INSERT IGNORE INTO task_tags(task_id,tag_id) VALUES (?,?)')
+    ->execute([$importIds[0],$tagId]);
+$pdo->beginTransaction();
+$copy=taskflow_copy_into_list($pdo,$importIds[0],$riskListId,$id,$teamId);
+$pdo->commit();
+$assert((int)$copy['list_id']===$riskListId && (int)$copy['id']>0,'copy targets another project in the same team');
+$copyDetail=$pdo->prepare('SELECT list_id,status,start_date,due_date,estimate_minutes,created_by,parent_task_id FROM tasks WHERE id=?');
+$copyDetail->execute([$copy['id']]);$copied=$copyDetail->fetch(PDO::FETCH_ASSOC);
+$assert((int)$copied['list_id']===$riskListId && $copied['status']==='to_do' && $copied['start_date']===null
+    && $copied['due_date']===null && $copied['parent_task_id']===null && (int)$copied['estimate_minutes']===180
+    && (int)$copied['created_by']===$id,'copied task retains work definition, resets dates/status');
+$assignees=$pdo->prepare('SELECT COUNT(*) FROM task_assignees WHERE task_id=?');
+$assignees->execute([$copy['id']]);
+$assert((int)$assignees->fetchColumn()===0,'copied task does not inherit assignees');
+$checklist=$pdo->prepare('SELECT is_done FROM checklist_items WHERE task_id=?');
+$checklist->execute([$copy['id']]);
+$assert((int)$checklist->fetchColumn()===0,'checklist contents are copied as unfinished');
+$tagLookup=$pdo->prepare('SELECT COUNT(*) FROM task_tags WHERE task_id=? AND tag_id=?');
+$tagLookup->execute([$copy['id'],$tagId]);
+$assert((int)$tagLookup->fetchColumn()===1,'same-team task labels copied');
+$pdo->prepare('INSERT INTO lists(team_id,name) VALUES (?,?)')->execute([$otherTeamId,'Unrelated project']);
+$foreignTarget=(int)$pdo->lastInsertId();
+$crossCopyRejected=false;
+try {$pdo->beginTransaction();taskflow_copy_into_list($pdo,$importIds[0],$foreignTarget,$id,$teamId);}
+catch(DomainException $e){$crossCopyRejected=true;}
+finally{if($pdo->inTransaction())$pdo->rollBack();}
+$assert($crossCopyRejected,'cannot copy a task into a project belonging to another team');
+$assert(taskflow_copy_target(null,$listId)===$listId,'legacy duplication defaults to source project');
+// v3 task details: checklist batch insert, optimistic ordering, FK and atomic rollback.
+require_once __DIR__.'/../includes/checklist_actions.php';
+$checklistTaskId=(int)$importIds[0];
+$pdo->beginTransaction();
+$createStep=$pdo->prepare('INSERT INTO checklist_items(task_id,content,position) VALUES (?,?,?)');
+$createStep->execute([$checklistTaskId,'Gather sign-off',10]);$firstStepId=(int)$pdo->lastInsertId();
+$createStep->execute([$checklistTaskId,'Verify acceptance tests',11]);$secondStepId=(int)$pdo->lastInsertId();
+$pdo->commit();
+$ordered=$pdo->prepare('SELECT id,content FROM checklist_items WHERE task_id=? ORDER BY position,id');
+$ordered->execute([$checklistTaskId]);$actualRows=$ordered->fetchAll(PDO::FETCH_ASSOC);
+$actualOrder=array_map('intval',array_column($actualRows,'id'));
+$assert(in_array($firstStepId,$actualOrder,true) && in_array($secondStepId,$actualOrder,true),
+    'atomic multi-add preserves both checklist steps');
+$reversed=array_reverse($actualOrder);
+$nextOrder=taskflow_checklist_reorder_request($reversed,$actualOrder,$actualOrder);
+$pdo->beginTransaction();
+$updatePosition=$pdo->prepare('UPDATE checklist_items SET position=? WHERE id=? AND task_id=?');
+foreach($nextOrder as $i=>$idStep){$updatePosition->execute([$i,$idStep,$checklistTaskId]);}
+$pdo->commit();
+$ordered->execute([$checklistTaskId]);
+$assert(array_map('intval',array_column($ordered->fetchAll(PDO::FETCH_ASSOC),'id'))===$reversed,
+    'reorder updates persisted checklist position');
+$staleRefused=false;
+try{taskflow_checklist_reorder_request($actualOrder,$actualOrder,$reversed);}
+catch(RuntimeException){$staleRefused=true;}
+$assert($staleRefused,'stale checklist ordering refused before write');
+$foreignStep=$pdo->prepare('INSERT INTO checklist_items(task_id,content,position) VALUES (?,?,?)');
+$foreignStep->execute([$approval,'Another task private step',0]);
+$foreignStepId=(int)$pdo->lastInsertId();
+$foreignRefused=false;
+try{taskflow_checklist_reorder_request([$foreignStepId,...array_slice($reversed,1)],$reversed,$reversed);}
+catch(InvalidArgumentException){$foreignRefused=true;}
+$assert($foreignRefused,'reorder cannot include a step belonging to another task');
+$beforeCount=$pdo->prepare('SELECT COUNT(*) FROM checklist_items WHERE task_id=?');
+$beforeCount->execute([$checklistTaskId]);$countBefore=(int)$beforeCount->fetchColumn();
+$pdo->beginTransaction();
+$createStep->execute([$checklistTaskId,'Temporary first',13]);
+$createStep->execute([$checklistTaskId,'Temporary second',14]);
+$pdo->rollBack();
+$beforeCount->execute([$checklistTaskId]);
+$assert((int)$beforeCount->fetchColumn()===$countBefore,'failed bulk transaction leaves no partial checklist steps');
+// TaskFlow v3 discussion migration and reply/edit lifecycle checks.
+require_once __DIR__.'/../includes/comment_threads.php';
+$cols=$pdo->prepare("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='comments' AND column_name IN ('parent_comment_id','edited_at','edit_version')");
+$cols->execute();
+$assert((int)$cols->fetchColumn()===3,'v3 discussion columns available to existing and new installations');
+$pdo->prepare('INSERT INTO comments(task_id,user_id,content) VALUES (?,?,?)')
+    ->execute([$approval,$id,'Main discussion comment']);
+$rootCommentId=(int)$pdo->lastInsertId();
+$pdo->prepare('INSERT INTO comments(task_id,user_id,parent_comment_id,content) VALUES (?,?,?,?)')
+    ->execute([$approval,$memberId,$rootCommentId,'A teammate replied']);
+$replyCommentId=(int)$pdo->lastInsertId();
+$reply=$pdo->prepare('SELECT parent_comment_id,edit_version FROM comments WHERE id=? AND task_id=?');
+$reply->execute([$replyCommentId,$approval]);$replyRow=$reply->fetch(PDO::FETCH_ASSOC);
+$assert((int)$replyRow['parent_comment_id']===$rootCommentId && (int)$replyRow['edit_version']===1,
+    'reply references parent on the same task with version one');
+$updateComment=$pdo->prepare('UPDATE comments SET content=?,edited_at=UTC_TIMESTAMP(),edit_version=edit_version+1 WHERE id=? AND edit_version=?');
+$updateComment->execute(['An edited comment',$rootCommentId,1]);
+$assert($updateComment->rowCount()===1,'owner edit stores changed content and increments edit version');
+$updateComment->execute(['Stale edit',$rootCommentId,1]);
+$assert($updateComment->rowCount()===0,'stale comment edit does not silently overwrite newer change');
+$missingParentRejected=false;
+try {$pdo->prepare('INSERT INTO comments(task_id,user_id,parent_comment_id,content) VALUES (?,?,?,?)')
+    ->execute([$approval,$memberId,999999999,'Invalid parent']);}
+catch(PDOException $e) {$missingParentRejected=$e->getCode()==='23000';}
+$assert($missingParentRejected,'comment parent FK prevents references to deleted/nonexistent comments');
+$pdo->prepare('INSERT INTO mentions(comment_id,user_id) VALUES (?,?)')->execute([$rootCommentId,$memberId]);
+$pdo->prepare('DELETE FROM comments WHERE id=?')->execute([$rootCommentId]);
+$reply->execute([$replyCommentId,$approval]);$replyRow=$reply->fetch(PDO::FETCH_ASSOC);
+$assert($replyRow['parent_comment_id']===null,'replies survive deletion of parent and become root comments');
+$mentions=$pdo->prepare('SELECT COUNT(*) FROM mentions WHERE comment_id=?');$mentions->execute([$rootCommentId]);
+$assert((int)$mentions->fetchColumn()===0,'deleted parent comment cascades its mention records');
+$pdo->prepare('DELETE FROM comments WHERE id=?')->execute([$replyCommentId]);
+// TaskFlow v3 task reviews: unique current request, event history and stale version check.
+require_once __DIR__.'/../includes/task_reviews.php';
+$pdo->prepare("INSERT INTO task_review_requests(task_id,team_id,submitted_by,submitted_name,request_note)
+    VALUES (?,?,?,?,?)")->execute([(int)$copy['id'],$teamId,$memberId,'Test Member','Ready to review']);
+$reviewId=(int)$pdo->lastInsertId();
+$assert(taskflow_review_is_pending($pdo,(int)$copy['id']),'pending task review visible to task status guard');
+$duplicateReview=false;
+try{$pdo->prepare('INSERT INTO task_review_requests(task_id,team_id,submitted_name) VALUES (?,?,?)')
+  ->execute([(int)$copy['id'],$teamId,'Duplicate review']);}
+catch(PDOException $e){$duplicateReview=$e->getCode()==='23000';}
+$assert($duplicateReview,'one current review per task enforced at database level');
+$pdo->prepare('INSERT INTO task_review_events(review_id,actor_id,actor_name,event_type,note) VALUES (?,?,?,?,?)')
+    ->execute([$reviewId,$memberId,'Test Member','requested','Ready to review']);
+$pdo->prepare("UPDATE task_review_requests SET status='approved',version=version+1 WHERE id=? AND version=1")
+    ->execute([$reviewId]);
+$staleReview=$pdo->prepare("UPDATE task_review_requests SET status='cancelled',version=version+1 WHERE id=? AND version=1");
+$staleReview->execute([$reviewId]);
+$assert($staleReview->rowCount()===0,'stale review version cannot override a manager decision');
+$assert(!taskflow_review_is_pending($pdo,(int)$copy['id']),'approved review releases pending status guard');
+$pdo->prepare('INSERT INTO task_review_events(review_id,actor_id,actor_name,event_type,note) VALUES (?,?,?,?,?)')
+    ->execute([$reviewId,$id,'Test Manager','approved','Approved']);
+$eventCount=$pdo->prepare('SELECT COUNT(*) FROM task_review_events WHERE review_id=?');
+$eventCount->execute([$reviewId]);
+$assert((int)$eventCount->fetchColumn()===2,'review decision history remains append-only');
+$crossScope=$pdo->prepare('SELECT COUNT(*) FROM task_review_requests WHERE id=? AND team_id=?');
+$crossScope->execute([$reviewId,$otherTeamId]);
+$assert((int)$crossScope->fetchColumn()===0,'review queue is scoped to the originating team');
+// Current v3 release QA: rate limits shared by team/org chat and direct messages.
+// Use a dedicated sender in this disposable DB so earlier test chat has no influence.
+require_once __DIR__.'/../includes/message_hardening.php';
+$pdo->prepare("INSERT INTO users(name,email,password_hash,role,team_id,is_active,must_change_password)
+  VALUES (?,?,?,?,?,1,0)")->execute(['Message QA','message-qa@example.test',password_hash('QA secure passphrase',PASSWORD_DEFAULT),'member',$teamId]);
+$messageSender=(int)$pdo->lastInsertId();
+$chatAdd=$pdo->prepare("INSERT INTO chat_messages(team_id,scope,user_id,content) VALUES (NULL,'org',?,?)");
+$dmAdd=$pdo->prepare('INSERT INTO direct_messages(sender_id,recipient_id,content) VALUES (?,?,?)');
+for($i=0;$i<15;$i++){
+    $pdo->beginTransaction();
+    taskflow_message_assert_can_send($pdo,$messageSender);
+    if($i%2===0)$chatAdd->execute([$messageSender,'Quality check '.$i]);
+    else $dmAdd->execute([$messageSender,$id,'Quality check '.$i]);
+    $pdo->commit();
+}
+$assert(taskflow_message_content("One\nTwo")==="One\nTwo",'multiline message validation preserves contents');
+$quotaRejected=false;
+try{$pdo->beginTransaction();taskflow_message_assert_can_send($pdo,$messageSender);}
+catch(OverflowException $e){$quotaRejected=true;}
+finally{if($pdo->inTransaction())$pdo->rollBack();}
+$assert($quotaRejected,'15 combined chat+DM messages enforce shared minute quota');
+$messages=$pdo->prepare('SELECT COUNT(*) FROM chat_messages WHERE user_id=?');
+$messages->execute([$messageSender]);$chatCount=(int)$messages->fetchColumn();
+$direct=$pdo->prepare('SELECT COUNT(*) FROM direct_messages WHERE sender_id=?');
+$direct->execute([$messageSender]);$dmCount=(int)$direct->fetchColumn();
+$assert($chatCount+$dmCount===15,'rejected send adds no chat or DM row');
+$pdo->prepare('UPDATE chat_messages SET created_at=CURRENT_TIMESTAMP-INTERVAL 2 MINUTE WHERE user_id=?')->execute([$messageSender]);
+$pdo->prepare('UPDATE direct_messages SET created_at=CURRENT_TIMESTAMP-INTERVAL 2 MINUTE WHERE sender_id=?')->execute([$messageSender]);
+$pdo->beginTransaction();taskflow_message_assert_can_send($pdo,$messageSender);$pdo->rollBack();
+$assert(true,'shared quota permits sends when the minute window has expired');
+$pdo->prepare('DELETE FROM users WHERE id=?')->execute([$messageSender]);
+$messages->execute([$messageSender]);$assert((int)$messages->fetchColumn()===0,'user cleanup cascades test chat messages');
+$direct->execute([$messageSender]);$assert((int)$direct->fetchColumn()===0,'user cleanup cascades test direct messages');
 $pdo->prepare('DELETE FROM lists WHERE id=?')->execute([$riskListId]);
 $st=$pdo->prepare('SELECT COUNT(*) FROM project_risks WHERE id=?');$st->execute([$riskId]);
 $assert((int)$st->fetchColumn()===0,'deleting list cascades project risks');
@@ -616,4 +965,8 @@ $st=$pdo->prepare('SELECT COUNT(*) FROM project_decisions WHERE id=?');$st->exec
 $assert((int)$st->fetchColumn()===0,'deleting list cascades decisions');
 $st=$pdo->prepare('SELECT COUNT(*) FROM risk_reminder_deliveries WHERE risk_id=?');$st->execute([$riskId]);
 $assert((int)$st->fetchColumn()===0,'deleting risks cascades reminder markers');
-echo 'MySQL schema and TaskFlow v1.19.0 decisions and risk reminders checks passed.' . PHP_EOL;
+$st=$pdo->prepare('SELECT COUNT(*) FROM task_review_requests WHERE id=?');$st->execute([$reviewId]);
+$assert((int)$st->fetchColumn()===0,'deleting a task cascades its review request');
+$eventCount->execute([$reviewId]);
+$assert((int)$eventCount->fetchColumn()===0,'deleting a task cascades review history events');
+echo 'MySQL schema and TaskFlow v3 batch planning and existing integration checks passed.' . PHP_EOL;

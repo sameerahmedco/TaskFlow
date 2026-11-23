@@ -1,1 +1,4 @@
-Require all denied
+# Defense-in-depth for Apache deployments with mod_rewrite unavailable.
+<IfModule mod_authz_core.c>
+  Require all denied
+</IfModule>

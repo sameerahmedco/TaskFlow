@@ -7,7 +7,7 @@ html='<!DOCTYPE html>'+(root/'index.php').read_text().split('<!DOCTYPE html>',1)
 html=re.sub(r'<\?php.*?\?>','',html,flags=re.S)
 html=re.sub(r'<link rel="stylesheet"[^>]*>','',html)
 html=re.sub(r'<script src="[^"]*">\s*</script>','',html)
-css=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()+'\n'+(root/'assets/css/v2-workspace.css').read_text()
+css=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()+'\n'+(root/'assets/css/workspace.css').read_text()+'\n'+(root/'assets/css/v3-refinement.css').read_text()+'\n'+(root/'assets/css/v3-compact.css').read_text()
 app=(root/'assets/js/app.js').read_text()
 logo='data:image/png;base64,'+base64.b64encode((root/'assets/img/taskflow-logo-192.png').read_bytes()).decode()
 icons=(root/'assets/img/icons.svg').read_text()
@@ -60,13 +60,15 @@ with sync_playwright() as p:
     page=browser.new_page(viewport={'width':1440,'height':940});page.set_default_timeout(12000);page.on('pageerror',lambda e:errors.append(str(e)))
     page.on('dialog',lambda d:d.accept());boot(page)
     page.locator('[data-view="timeline"]').click();page.wait_for_selector('[data-timeline-open="24"]')
-    page.locator('[data-timeline-open="24"]').first.click();page.wait_for_selector('#tm-attachments .attachment-item')
+    page.locator('[data-timeline-open="24"]').first.click();page.wait_for_selector('#tm-tab-files')
+    page.locator('#tm-tab-files').click();page.wait_for_selector('#tm-attachments .attachment-item')
     assert page.locator('#tm-repeat-rule').input_value()=='monthly'
     assert page.locator('#tm-attachments a[href="api/attachments.php?download_id=73"]').count()==1
     assert page.locator('#tm-attachments .attachment-item').inner_text().find('design-notes.pdf')>=0
     assert page.locator('#tm-attachment-form input[type=file]').count()==1
     page.locator('#tm-attachments').scroll_into_view_if_needed()
     page.screenshot(path=str(root/'docs/screenshots/task-files.png'),full_page=True)
+    page.locator('#tm-tab-details').click()
     page.locator('#tm-repeat-rule').select_option('biweekly');page.locator('#tm-save').click()
     page.wait_for_function("window.calls.some(c=>c.name==='task.php'&&c.method==='PUT'&&JSON.parse(c.body).recurrence_rule==='biweekly')")
     print('PASS: task details show private attachment link, upload control and recurrence selector')

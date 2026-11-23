@@ -16,7 +16,7 @@ with sync_playwright() as p:
     page.on('pageerror', lambda e: errors.append(str(e)))
     page.on('dialog', lambda dialog: dialog.accept())
     page.set_content(html.replace('id="v2-tools-drawer" hidden','id="v2-tools-drawer"'))
-    page.add_style_tag(content=root.joinpath('assets/css/style.css').read_text() + '\n' + root.joinpath('assets/css/design-system.css').read_text() + '\n' + root.joinpath('assets/css/ui-overhaul.css').read_text() + '\n' + root.joinpath('assets/css/theme-accessibility.css').read_text() + '\n' + root.joinpath('assets/css/theme-palettes.css').read_text()+'\n'+root.joinpath('assets/css/v2-workspace.css').read_text())
+    page.add_style_tag(content=root.joinpath('assets/css/style.css').read_text() + '\n' + root.joinpath('assets/css/design-system.css').read_text() + '\n' + root.joinpath('assets/css/ui-overhaul.css').read_text() + '\n' + root.joinpath('assets/css/theme-accessibility.css').read_text() + '\n' + root.joinpath('assets/css/theme-palettes.css').read_text()+'\n'+root.joinpath('assets/css/workspace.css').read_text()+'\n'+root.joinpath('assets/css/v3-refinement.css').read_text() + '\n' + root.joinpath('assets/css/v3-compact.css').read_text())
     page.evaluate('''() => {
       window.calls=[];
       window.blocks=[{id:33,title:'Run quality assurance',status:'in_progress'}];

@@ -1,0 +1,314 @@
+/* TaskFlow v3 — compact, task-first workspace.
+ * Loaded after the existing theme and view styles. All colors use semantic
+ * palette tokens so Light, Dark, Charcoal, Black/OLED and accent themes work.
+ */
+:root { --v3-compact-radius:9px; --v3-compact-gap:10px; }
+/* Navigation: a small, persistent project rail rather than a tall dashboard. */
+.sidebar { width:224px; box-shadow:none; }
+.sidebar-top { padding:7px 10px 0; }
+.sidebar-top .brand { min-height:39px; margin:0 0 8px; padding:4px 8px; font-size:18px; letter-spacing:-.045em; }
+.sidebar-top .brand .brand-mark { width:27px; height:27px; }
+.sidebar-top .brand-version { font-size:9px; padding:3px 5px; }
+.workspace-card { margin:0 0 7px; padding:8px 9px; border-radius:8px; }
+.workspace-card-label { display:none; }
+.workspace-card-name { font-size:11px; line-height:1.4; }
+.workspace-card .team-switcher { padding-top:6px; }
+.workspace-card select { min-height:29px; font-size:11px; padding:4px 7px; }
+.sidebar-finder { height:31px; min-height:31px; margin:0 10px 9px; border-radius:7px; }
+.sidebar-finder input { height:29px; font-size:11.5px; }
+.sidebar-finder kbd { font-size:10px; }
+.v2-pinned-heading { display:none; }
+.v2-pinned-nav { display:flex; flex-direction:column; gap:1px; padding:0 8px 9px; }
+.v2-pinned-nav > button, .v2-pinned-nav > button:nth-child(3), .v2-pinned-nav > button:nth-child(4) {
+  grid-column:auto; justify-content:flex-start; min-height:31px; padding:5px 10px; gap:10px;
+  border-radius:7px; font-size:11.5px; font-weight:640;
+}
+.v2-pinned-nav button .nav-svg { width:16px; height:16px; }
+.v2-pinned-nav button.active { box-shadow:inset 2px 0 0 var(--accent); }
+.v3-project-rail { margin:0 9px 8px; min-height:0; }
+.v3-rail-heading { padding:5px 9px 6px; font-size:9px; letter-spacing:.09em; }
+.v3-rail-count { min-height:17px; height:17px; min-width:17px; font-size:9px; }
+.v3-project-items { max-height: min(34vh,270px); gap:1px; }
+.v3-project-link { min-height:30px; padding:4px 8px; gap:9px; border-radius:7px; font-size:11.5px; }
+.v3-project-icon { width:20px; height:20px; border-radius:5px; font-size:10px; }
+.v3-project-search-wrap { padding:0 5px 5px; }
+.v3-project-search-wrap[hidden] { display:none!important; }
+.v3-project-search-wrap input { display:block; width:100%; min-width:0; height:29px; border-radius:7px;
+  padding:5px 9px; border:1px solid var(--border); background:var(--control-bg); color:var(--text); font:inherit; font-size:11px; }
+.v3-project-search-wrap input::placeholder { color:var(--text-dim); }
+.v3-project-more { padding:8px 9px; font-size:11px; border-radius:7px; }
+.v3-project-more:focus-visible,.v3-project-link:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+.v2-tools-toggle { margin:2px 9px 7px; min-height:33px; padding:6px 10px; border-radius:7px; font-size:11px; }
+.v2-tool-help { padding:9px 12px 0; font-size:10.5px; }
+.v2-tool-drawer .sidebar-menu-scroll { padding:0 9px 14px; }
+.v2-tool-drawer .nav-group-toggle { padding:9px 8px 5px; }
+.v2-tool-drawer .sidebar-nav .nav-item { min-height:30px; padding:5px 9px; font-size:11px; }
+.sidebar-bottom { gap:5px; padding:8px 12px 10px; }
+.sidebar-bottom .me-chip .avatar { width:29px; height:29px; }
+.sidebar-bottom .me-chip { font-size:11px; gap:8px; }
+.sidebar-bottom .appearance-pref { display:grid; grid-template-columns: 64px 1fr; gap:7px; align-items:center; }
+.sidebar-bottom .appearance-pref-label { font-size:10px; color:var(--text-dim); }
+.sidebar-bottom .appearance-pref select { width:100%; min-width:0; min-height:29px; font-size:10px; padding:4px 8px; }
+.sidebar-bottom .sidebar-bottom-actions .icon-btn { width:32px; height:30px; }
+.sidebar-bottom .sidebar-bottom-actions .logout-btn { min-height:30px; }
+.sidebar-version { margin:0!important; font-size:9px; }
+/* Header: slim and predictable; don't repeat the Home nav tabs. */
+.topbar { min-height:54px; padding:7px clamp(14px,1.7vw,25px); gap:8px; }
+.topbar h1 { font-size:18px; line-height:1.18; }
+.topbar-overline { font-size:9px; margin:0 0 3px; }
+.topbar-utilities { gap:6px; }
+.topbar-search { min-height:34px; min-width:165px; border-radius:8px; }
+.quick-switch-btn,.theme-switch { height:34px; width:34px; min-height:34px; min-width:34px; padding:7px; border-radius:8px; }
+.header-create-btn { min-height:34px; padding:7px 12px; border-radius:8px; font-size:11px; }
+.v2-view-tabs { height:36px; padding:0 clamp(14px,1.7vw,25px); gap:14px; }
+.v2-view-tabs button { min-width:auto; font-size:11px; padding:0 7px; }
+#main-content[data-active-view="my-work"] .v2-view-tabs { display:none; }
+.view-toolbar { padding:6px clamp(14px,1.7vw,25px); }
+.view-container { padding:14px clamp(14px,1.7vw,25px) 40px; }
+.view-container > * { max-width:1700px; }
+/* Compact personal queue: full-width task grid instead of redundant shortcut cards. */
+.work-hero.v2-home-header,html .work-hero.v2-home-header {
+  padding:0 0 12px!important; margin:0 0 6px!important; min-height:0;
+  display:flex; align-items:end; justify-content:space-between; gap:12px; flex-wrap:wrap;
+}
+.v2-home-header .work-eyebrow { font-size:9.5px; letter-spacing:.07em; color:var(--text-dim); }
+.v2-home-header h2 { font-size:clamp(19px,2vw,24px); line-height:1.2; margin:4px 0 0; letter-spacing:-.04em; }
+.v3-work-open-project { min-height:30px; font-size:11px; padding:5px 10px; flex-shrink:0; }
+.v3-work-open-project span { padding-left:6px; }
+.work-results-section.v2-task-stream { width:100%; max-width:none; padding:0; border-radius:10px; overflow:hidden; box-shadow:none; background:var(--card-bg); }
+.v2-task-stream .work-section-head { margin:0; padding:13px 16px 8px; gap:10px; }
+.v2-task-stream .work-section-head h3 { margin:0; font-size:16px; letter-spacing:-.03em; }
+.v3-work-subheading { display:block; font-size:11px; color:var(--text-dim); margin-top:2px; }
+.v2-task-count { font-size:10px; color:var(--text-dim); padding:5px 8px; white-space:nowrap; }
+.v3-work-control-row { display:flex; align-items:flex-start; flex-wrap:wrap; gap:9px; padding:2px 15px 11px; }
+.v2-task-stream .focus-shortcuts { margin:0; padding:0; border:0; flex:1; flex-wrap:wrap; gap:5px; }
+.v2-task-stream .focus-shortcuts button { min-height:29px; padding:5px 10px; font-size:10.5px; border-radius:7px; }
+.v2-filter-details { position:relative; margin:0; flex-shrink:0; }
+.v2-filter-details summary { display:inline-flex; min-height:29px; align-items:center; border:1px solid var(--border); border-radius:7px; padding:5px 9px; background:var(--card-bg); color:var(--text-dim); font-size:10.5px; }
+.v2-filter-details summary:hover,.v2-filter-details[open] summary { background:var(--accent-light); color:var(--accent-dark); border-color:var(--accent); }
+.v2-filter-details #my-work-filters { position:absolute; right:0; top:31px; width:265px; max-width:min(265px,85vw); z-index:10;
+  display:flex; flex-direction:column; gap:8px; margin:0; background:var(--card-bg); border:1px solid var(--border); border-radius:10px;
+  padding:12px; box-shadow:var(--shadow-lg); }
+.v2-filter-details:not([open]) #my-work-filters { display:none; }
+.v2-filter-details #my-work-filters select { width:100%; min-height:34px; }
+.v3-work-statline { display:flex; flex-wrap:wrap; gap:5px 17px; align-items:center; background:var(--surface); border-top:1px solid var(--border); border-bottom:1px solid var(--border); padding:8px 16px; color:var(--text-dim); font-size:10.5px; }
+.v3-work-statline .v3-stat strong { font-size:11px; color:var(--text); margin-right:3px; }
+.v3-work-statline .v3-stat + .v3-stat { padding-left:13px; border-left:1px solid var(--border); }
+.v3-stat-hint { margin-left:auto; font-size:9.5px; color:var(--text-dim); }
+.v3-work-columns { display:grid; grid-template-columns:minmax(210px,1fr) 122px 85px 80px; gap:14px; align-items:center;
+  padding:8px 16px; background:var(--card-bg); border-bottom:1px solid var(--border); color:var(--text-dim); font-size:9.5px; font-weight:700; letter-spacing:.045em; text-transform:uppercase; }
+.v3-work-columns span:nth-child(n+2) { text-align:center; }
+.v3-work-columns span:last-child { text-align:right; }
+.v2-task-stream .search-result-list { margin:0; border:0; border-radius:0; gap:0; }
+.v2-task-stream .search-result.v3-work-task { display:grid; grid-template-columns:minmax(210px,1fr) 122px 85px 80px;
+  align-items:center; gap:14px; width:100%; min-height:49px; padding:7px 16px; border:0; border-bottom:1px solid var(--border); border-radius:0;
+  background:var(--card-bg); color:var(--text); text-align:left; box-shadow:none; transition:none; }
+.v2-task-stream .search-result.v3-work-task:hover { background:var(--hover-surface); }
+.v2-task-stream .search-result.v3-work-task:focus-visible { outline:2px solid var(--accent); outline-offset:-3px; position:relative; z-index:1; }
+.v2-task-stream .search-result.v3-work-task strong { display:block; font-size:12px; line-height:1.25; color:var(--text); font-weight:650; overflow-wrap:anywhere; }
+.v2-task-stream .search-result.v3-work-task small { display:block; margin-top:3px; font-size:10px; line-height:1.15; color:var(--text-dim); overflow-wrap:anywhere; }
+.v3-work-task-main { min-width:0; }
+.v3-work-task-status,.v3-work-task-priority { display:flex; justify-content:center; min-width:0; }
+.v3-work-task-status .status-pill,.v3-work-task-priority .priority-pill { flex:0 0 auto; font-size:10px; line-height:1.2; white-space:nowrap; border-radius:5px; padding:5px 7px; text-transform:capitalize; }
+.v3-work-task > .search-due { text-align:right; font-size:10.5px; white-space:nowrap; color:var(--text-dim); }
+.v3-work-task > .search-due.due-overdue { color:var(--danger); font-weight:720; }
+.v3-work-loading { padding:18px 16px; color:var(--text-dim); font-size:11px; }
+#my-work-more { margin:9px 15px 12px; }
+.v2-task-stream .empty-state { margin:9px 14px 15px; padding:20px; }
+/* All-day screens use compact tables and cards, not giant marketing panels. */
+.v2-view-intro { margin:0 0 10px; gap:10px; }
+.v2-view-intro h2 { font-size:18px; margin:3px 0; }
+.v2-view-intro p,.v2-view-intro-hint { font-size:11px; }
+.feature-intro,.portfolio-intro,.milestone-intro { padding-bottom:9px!important; margin-bottom:8px!important; }
+.feature-intro h2,.portfolio-intro h2,.milestone-intro h2 { font-size:19px; }
+.feature-intro p,.portfolio-intro p,.milestone-intro p { font-size:11px; }
+#tasks-tab-body { border-radius:9px; padding:7px; }
+.tab-bar { gap:14px; margin-bottom:7px; }
+.tab-btn { padding:6px 3px 8px; font-size:11px; }
+.task-table thead th { padding:8px 10px; font-size:9px; }
+.task-table tbody td { padding:9px 10px; font-size:11px; }
+.table-scroll { border-radius:8px; }
+.board-toolbar,.search-form,.risk-filters,.decision-filters,.project-update-toolbar { padding:9px 11px; margin-bottom:8px; }
+.kanban-board { gap:10px; }
+.board-lane { border-radius:8px; }
+.board-lane h3 { padding:9px 11px; }
+.board-items { padding:8px; gap:7px; }
+.board-card { padding:10px 11px; border-radius:8px; }
+.board-task-open { font-size:11px; }
+:where(.portfolio-card,.risk-card,.decision-card,.announcement-card,.milestone-card,.overview-panel) { border-radius:8px; }
+:where(.portfolio-card,.risk-card,.decision-card,.announcement-card,.milestone-card) { padding:13px; }
+:where(.risk-form-grid input,.risk-form-grid select,.decision-form-grid input,.decision-form-grid select,.search-form input,.search-form select) { min-height:32px; }
+.modal { border-radius:12px; }
+/* Palette inheritance: never replace semantic text with fixed light color values. */
+html[data-palette="black"] .view-container { background:#000; }
+html[data-theme="dark"] .v3-work-task .search-due { color:var(--text-dim); }
+html[data-theme="dark"] .v3-work-task .search-due.due-overdue { color:var(--danger); }
+@media (max-width:1180px) {
+  .v3-stat-hint { display:none; }
+  .topbar-search { min-width:40px; }
+}
+@media (max-width:860px) {
+  .sidebar { width:250px; max-width:87vw; }
+  .topbar { padding:8px 15px; min-height:55px; }
+  .view-container { padding:13px 15px calc(100px + env(safe-area-inset-bottom)); }
+  .v2-view-tabs { padding:0 15px; }
+  .v3-project-items { max-height:210px; }
+}
+@media (max-width:620px) {
+  .sidebar { width:265px; }
+  .topbar { padding:8px 11px; }
+  .topbar h1 { font-size:16px; }
+  .topbar-overline { font-size:8.5px; }
+  .topbar-search,.quick-switch-btn,.theme-switch { height:34px; min-height:34px; }
+  .header-create-btn { min-height:34px; }
+  .view-container { padding:10px 9px calc(94px + env(safe-area-inset-bottom)); }
+  .work-hero.v2-home-header,html .work-hero.v2-home-header { padding-bottom:8px!important; }
+  .v2-home-header h2 { font-size:19px; }
+  .v3-work-open-project { font-size:10px; min-height:30px; }
+  .work-results-section.v2-task-stream { border-radius:8px; }
+  .v2-task-stream .work-section-head { padding:11px 10px 8px; }
+  .v2-task-stream .work-section-head h3 { font-size:15px; }
+  .v3-work-subheading { font-size:10px; }
+  .v3-work-control-row { display:grid; grid-template-columns:minmax(0,1fr) auto; padding:4px 10px 10px; gap:6px; }
+  .v2-task-stream .focus-shortcuts { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; min-width:0; gap:4px; }
+  .v2-task-stream .focus-shortcuts::-webkit-scrollbar { display:none; }
+  .v2-task-stream .focus-shortcuts button { min-height:30px; padding:5px 8px; font-size:10px; flex-shrink:0; }
+  .v2-filter-details { margin-left:0; }
+  .v3-work-statline { padding:8px 10px; gap:7px; }
+  .v3-work-statline .v3-stat + .v3-stat { padding-left:7px; }
+  .v3-work-columns { display:none; }
+  .v2-task-stream .search-result.v3-work-task { grid-template-columns:minmax(0,1fr) auto; grid-template-areas:'name due' 'status priority'; gap:5px 9px;
+    min-height:66px; padding:10px 11px; }
+  .v3-work-task-main { grid-area:name; }
+  .v3-work-task-status { grid-area:status; justify-content:start; }
+  .v3-work-task-priority { grid-area:priority; justify-content:end; }
+  .v3-work-task > .search-due { grid-area:due; align-self:start; }
+  .v3-work-task-status .status-pill,.v3-work-task-priority .priority-pill { padding:3px 6px; font-size:9.5px; }
+  .v2-task-stream .search-result.v3-work-task strong { font-size:11.5px; }
+  .v2-task-stream .search-result.v3-work-task small { font-size:10px; }
+  .v2-view-intro h2 { font-size:17px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .v3-work-task,.v3-project-link { transition:none!important; }
+}
+/* Narrow-screen task metadata stays badge-sized, not full-width color bars. */
+.v2-task-stream .search-result.v3-work-task .v3-work-task-status .status-pill,
+.v2-task-stream .search-result.v3-work-task .v3-work-task-priority .priority-pill {
+  flex:0 0 auto;
+  max-width:max-content;
+  width:auto;
+}
+
+/* The Board already has a title in the topbar: remove its duplicate hero. */
+#main-content[data-active-view="board"] .v2-view-intro { display:none; }
+.v3-board-hint { margin-left:auto; font-size:10.5px; color:var(--text-dim); }
+.board-toolbar { min-height:40px; display:flex; align-items:center; gap:14px; }
+.board-toolbar .btn { margin-left:0; min-height:31px; }
+@media(max-width:860px){.v3-board-hint{display:none;}}
+
+/* TaskFlow v3 — zero-modal task triage and quiet focus layout.
+ * All colors inherit theme tokens for Light, Charcoal, Black and accent palettes.
+ */
+.task-quick-pill { display:inline-flex;align-items:center;justify-content:center;position:relative;max-width:100%;min-width:0;padding:0!important;white-space:nowrap; }
+.task-quick-pill::after { content:"";position:absolute;pointer-events:none;right:6px;top:calc(50% - 3px);height:5px;width:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);opacity:.72; }
+.task-quick-select { appearance:none!important;display:block;min-width:0;max-width:100%;border:0!important;border-radius:inherit!important;color:inherit!important;background:transparent!important;box-shadow:none!important;font:inherit;font-weight:730;line-height:1.2;cursor:pointer;padding:5px 20px 5px 8px!important;min-height:28px; }
+.task-quick-select:focus-visible { outline:2px solid var(--accent)!important;outline-offset:2px!important; }
+.task-quick-select:disabled { opacity:.5;cursor:progress; }
+.task-quick-select option { color:var(--text);background:var(--card-bg);font-weight:500; }
+.task-quick-pill[aria-busy=true],.task-quick-pill:has(.task-quick-select[aria-busy=true]) { opacity:.7; }
+.task-table .task-quick-pill { vertical-align:middle; }
+.task-table td:has(.task-quick-select) { cursor:default; }
+/* The personal queue is a compact grid, not a nested button containing other buttons. */
+.v2-task-stream .search-result.v3-work-task { cursor:pointer; }
+.v3-work-task-main.v3-work-task-open { width:100%;display:block;min-width:0;padding:0;border:0;border-radius:5px;text-align:left;background:transparent;color:inherit;cursor:pointer; }
+.v3-work-task-main.v3-work-task-open:hover strong { color:var(--accent-dark); }
+.v3-work-task .task-quick-select { font-size:10px; }
+.v3-work-task .task-quick-pill { flex:0 1 auto; }
+.v3-work-task .v3-work-task-status,.v3-work-task .v3-work-task-priority { min-width:0; }
+.v3-work-task .task-quick-pill.status-pill { min-width:0; }
+.v3-work-task .task-quick-select:focus-visible { outline-offset:0!important; }
+/* Keep browser-native dropdown entries legible in every theme. */
+html[data-palette="black"] .task-quick-select option,html[data-palette="charcoal"] .task-quick-select option { background:var(--card-bg);color:var(--text); }
+/* Fully reversible desktop focus mode: all main features remain in the global command palette. */
+@media(min-width:861px) {
+  .app.v3-focus-workspace > .sidebar { display:none!important; }
+  .app.v3-focus-workspace > .main { width:100%;max-width:100%;margin-left:0; }
+  .app.v3-focus-workspace .view-container > * { max-width:none; }
+}
+#workspace-focus-toggle[aria-pressed="true"] { background:var(--accent-light);color:var(--accent-dark);border-color:var(--accent); }
+@media(max-width:860px) { #workspace-focus-toggle { display:none!important; } }
+@media(max-width:620px) {
+  .v3-work-task .task-quick-select { min-height:26px;padding:4px 17px 4px 6px!important;font-size:9.5px; }
+  .v3-work-task .task-quick-pill::after { right:5px; }
+  .v2-task-stream .search-result.v3-work-task .v3-work-task-status .task-quick-pill,
+  .v2-task-stream .search-result.v3-work-task .v3-work-task-priority .task-quick-pill { max-width:100%; }
+}
+
+/* TaskFlow v3: nested left-sidebar navigation; no extra persistent panel. */
+.v2-pinned-nav .v3-menu-group { min-width:0; width:100%; }
+.v2-pinned-nav .v3-menu-heading { display:grid;grid-template-columns:minmax(0,1fr) 27px;align-items:center;gap:1px;min-width:0; }
+.v2-pinned-nav .v3-menu-heading > button[data-v2-view] { width:100%;min-width:0;min-height:31px;padding:5px 8px 5px 10px;gap:10px;border-radius:7px;font-size:11.5px;font-weight:640; }
+.v2-pinned-nav .v3-menu-heading > button[data-v2-view] span { min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.v2-pinned-nav .v3-menu-heading > .v3-submenu-toggle { width:27px;min-width:27px;height:29px;min-height:29px;display:grid;place-items:center;padding:0;background:transparent;border:1px solid transparent;border-radius:7px;color:var(--text-dim); }
+.v2-pinned-nav .v3-menu-heading > .v3-submenu-toggle:hover { background:var(--surface);color:var(--text); }
+.v2-pinned-nav .v3-menu-heading > .v3-submenu-toggle[aria-expanded="true"] { background:var(--accent-light);color:var(--accent-dark); }
+.v3-submenu-chevron { width:6px;height:6px;display:block;border-right:1.6px solid currentColor;border-bottom:1.6px solid currentColor;transform:rotate(-45deg);transition:transform .15s ease; }
+.v3-submenu-toggle[aria-expanded="true"] .v3-submenu-chevron { transform:rotate(45deg); }
+.v2-pinned-nav .v3-submenu-items { border-left:1px solid var(--border);margin:2px 0 4px 20px;padding:2px 0 2px 8px;display:flex;flex-direction:column;gap:1px; }
+.v2-pinned-nav .v3-submenu-items[hidden] { display:none!important; }
+.v2-pinned-nav .v3-submenu-items .v3-submenu-link { display:block;width:100%;min-height:28px;height:auto;line-height:1.25;border:1px solid transparent;border-radius:6px;padding:6px 9px;text-align:left;white-space:normal;font-size:10.7px;font-weight:580;letter-spacing:0;background:transparent;color:var(--text-dim); }
+.v2-pinned-nav .v3-submenu-items .v3-submenu-link:hover { color:var(--text);background:var(--surface); }
+.v2-pinned-nav .v3-submenu-items .v3-submenu-link.active,
+.v2-pinned-nav .v3-submenu-items .v3-submenu-link[aria-current="page"] { color:var(--accent-dark);background:var(--accent-light);border-color:color-mix(in srgb,var(--accent) 12%,var(--border));font-weight:730;box-shadow:none; }
+.v2-pinned-nav .v3-menu-group.v3-menu-related > .v3-menu-heading > button[data-v2-view]:not(.active) { color:var(--text); }
+.v2-pinned-nav .v3-submenu-toggle:focus-visible,.v2-pinned-nav .v3-submenu-link:focus-visible { outline:2px solid var(--accent);outline-offset:-2px; }
+@media(max-width:860px){.v2-pinned-nav .v3-menu-heading > button[data-v2-view] { min-height:35px;font-size:12px; }.v2-pinned-nav .v3-submenu-items .v3-submenu-link { min-height:33px;font-size:11.5px; } }
+@media(prefers-reduced-motion:reduce){.v3-submenu-chevron{transition:none}}
+
+/* Individual project submenus; only one expands, preserving the compact rail. */
+.v3-project-group { min-width:0; }
+.v3-project-row { display:grid;grid-template-columns:minmax(0,1fr) 24px;align-items:center;gap:2px;min-width:0; }
+.v3-project-row > .v3-project-link { min-width:0;width:100%; }
+.v3-project-row > .v3-project-submenu-toggle { border:1px solid transparent;background:transparent;display:grid;place-items:center;width:24px;height:26px;min-height:26px;border-radius:6px;color:var(--text-dim);padding:0; }
+.v3-project-row > .v3-project-submenu-toggle:hover,.v3-project-row > .v3-project-submenu-toggle[aria-expanded="true"] { background:var(--accent-light);color:var(--accent-dark); }
+.v3-project-submenu { margin:1px 0 4px 13px;padding:2px 0 2px 8px;display:flex;flex-direction:column;gap:1px;border-left:1px solid var(--border); }
+.v3-project-submenu[hidden] { display:none!important; }
+.v3-project-submenu button { border:1px solid transparent;border-radius:6px;padding:5px 8px;min-height:26px;font-size:10.5px;font-weight:600;text-align:left;background:transparent;color:var(--text-dim); }
+.v3-project-submenu button:hover { background:var(--surface);color:var(--text); }
+.v3-project-submenu button.active { border-color:color-mix(in srgb,var(--accent) 12%,var(--border));background:var(--accent-light);color:var(--accent-dark); }
+.v3-project-submenu button:focus-visible,.v3-project-submenu-toggle:focus-visible { outline:2px solid var(--accent);outline-offset:-1px; }
+
+/* Keep the project rail and account controls visible when a long submenu opens. */
+.v2-pinned-nav { max-height:clamp(200px,42dvh,370px);overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:var(--border) transparent;overscroll-behavior:contain;flex-shrink:1;min-height:0; }
+.v3-project-rail { flex:0 1 auto;min-height:0; }
+.v3-project-items { max-height:min(23dvh,190px);overflow-y:auto;scrollbar-width:thin; }
+.v2-tools-toggle { flex-shrink:0; }
+@media(max-width:860px){
+  .v2-pinned-nav { max-height:min(38dvh,320px); }
+  .v3-project-items { max-height:min(17dvh,140px); }
+}
+@media(max-width:860px){
+  .v2-pinned-nav .v3-menu-heading { grid-template-columns:minmax(0,1fr) 36px; }
+  .v2-pinned-nav .v3-menu-heading > .v3-submenu-toggle { width:36px;min-width:36px;height:36px;min-height:36px; }
+  .v3-project-row { grid-template-columns:minmax(0,1fr) 34px; }
+  .v3-project-row > .v3-project-submenu-toggle { width:34px;min-width:34px;height:34px;min-height:34px; }
+}
+/* v3 quick batch editing: small controls and clear selection, light/charcoal/black safe. */
+.bulk-toolbar { gap:7px; align-items:center; padding:9px 11px; }
+.bulk-toolbar :is(#bulk-date,#bulk-teammate,#bulk-value,#bulk-tag,#bulk-estimate) { min-height:34px;max-width:190px;font-size:12px;border:1px solid var(--border);border-radius:8px;padding:5px 9px;color:var(--text);background:var(--card-bg); }
+.bulk-toolbar :is(#bulk-date,#bulk-teammate,#bulk-value,#bulk-tag,#bulk-estimate)[hidden] { display:none!important; }
+.bulk-toolbar #bulk-clear-selection { min-width:auto;white-space:nowrap; }
+.bulk-toolbar .bulk-hint { margin-left:auto;font-size:10px;color:var(--text-dim); }
+.bulk-toolbar #bulk-count { color:var(--text);font-size:12px; }
+@media(max-width:620px){
+  .bulk-toolbar { flex-direction:row;align-items:center;justify-content:flex-start;flex-wrap:wrap; }
+  .bulk-toolbar label,.bulk-toolbar :is(#bulk-date,#bulk-teammate,#bulk-value,#bulk-tag,#bulk-estimate) { flex:1 1 150px; }
+  .bulk-toolbar .btn { width:auto;flex:1 1 135px;min-width:0; }
+  .bulk-toolbar .bulk-hint { flex:1 1 100%;margin:0; }
+}
+
+/* TaskFlow v3: planning + label batch editor, compact and theme-aware. */
+.bulk-toolbar optgroup { font-size:12px; font-weight:740; color:var(--text-dim);background:var(--card-bg); }
+.bulk-toolbar :is(#bulk-date,#bulk-tag,#bulk-estimate,#bulk-teammate) { width:min(190px,100%); }
+.bulk-toolbar #bulk-estimate { padding:5px 9px; }
+@media(max-width:600px) { .bulk-toolbar :is(#bulk-date,#bulk-tag,#bulk-estimate,#bulk-teammate) { max-width:none;width:auto; } }

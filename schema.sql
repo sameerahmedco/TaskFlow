@@ -270,8 +270,15 @@ CREATE TABLE IF NOT EXISTS comments (
   user_id INT UNSIGNED NOT NULL,
   content TEXT NOT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  parent_comment_id INT UNSIGNED NULL,
+  edited_at DATETIME NULL,
+  edit_version INT UNSIGNED NOT NULL DEFAULT 1,
+  INDEX idx_comments_task_id (task_id,id),
+  INDEX idx_comments_author_time (user_id,created_at),
+  INDEX idx_comments_parent (parent_comment_id),
   FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_comments_parent FOREIGN KEY (parent_comment_id) REFERENCES comments(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS mentions (
@@ -839,4 +846,41 @@ CREATE TABLE risk_reminder_deliveries (
   INDEX idx_risk_reminder_retention (created_at),
   CONSTRAINT fk_risk_reminder_risk FOREIGN KEY (risk_id) REFERENCES project_risks(id) ON DELETE CASCADE,
   CONSTRAINT fk_risk_reminder_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- TaskFlow v3: task review requests, manager decisions and append-only decision history.
+CREATE TABLE task_review_requests (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  task_id INT UNSIGNED NOT NULL,
+  team_id INT UNSIGNED NOT NULL,
+  submitted_by INT UNSIGNED NULL,
+  submitted_name VARCHAR(100) NOT NULL,
+  reviewed_by INT UNSIGNED NULL,
+  status ENUM('pending','approved','changes_requested','cancelled') NOT NULL DEFAULT 'pending',
+  request_note VARCHAR(1000) NOT NULL DEFAULT '',
+  reviewer_note VARCHAR(1000) NOT NULL DEFAULT '',
+  version INT UNSIGNED NOT NULL DEFAULT 1,
+  submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  reviewed_at DATETIME NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_task_review_task (task_id),
+  INDEX idx_review_queue (team_id,status,id),
+  INDEX idx_review_submitter (submitted_by,id),
+  CONSTRAINT fk_task_review_task FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+  CONSTRAINT fk_task_review_team FOREIGN KEY(team_id) REFERENCES teams(id) ON DELETE CASCADE,
+  CONSTRAINT fk_task_review_submitter FOREIGN KEY(submitted_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT fk_task_review_reviewer FOREIGN KEY(reviewed_by) REFERENCES users(id) ON DELETE SET NULL,
+  CONSTRAINT chk_task_review_version CHECK (version>=1)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+CREATE TABLE task_review_events (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  review_id BIGINT UNSIGNED NOT NULL,
+  actor_id INT UNSIGNED NULL,
+  actor_name VARCHAR(100) NOT NULL,
+  event_type ENUM('requested','resubmitted','approved','changes_requested','cancelled') NOT NULL,
+  note VARCHAR(1000) NOT NULL DEFAULT '',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_review_events (review_id,id),
+  CONSTRAINT fk_review_event_review FOREIGN KEY(review_id) REFERENCES task_review_requests(id) ON DELETE CASCADE,
+  CONSTRAINT fk_review_event_actor FOREIGN KEY(actor_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -49,11 +49,18 @@
     if (options.body) opts.body = JSON.stringify(options.body);
 
     const res = await fetch('api/' + path, opts);
-    let data = {};
-    try { data = await res.json(); } catch (e) {}
-
-    if (res.status === 401 && !options.preserveMfa) { showAuthScreen(); throw new Error(data.error || 'Not authenticated'); }
-    if (!res.ok) throw new Error(data.error || 'Something went wrong.');
+    let data;
+    try { data = await res.json(); }
+    catch (e) {
+      // An HTTP 200 with HTML/empty/invalid JSON is not proof of a saved edit.
+      // Never silently treat it as a successful empty response.
+      if (res.ok) throw new Error('The server returned an invalid response. Check whether your changes were saved before retrying.');
+      data = {};
+    }
+    if (res.status === 401 && !options.preserveMfa) { showAuthScreen(); throw new Error(data?.error || 'Not authenticated'); }
+    if (!res.ok) throw new Error(data?.error || 'Something went wrong.');
+    if (data === null || typeof data !== 'object' || Array.isArray(data))
+      throw new Error('The server returned an unexpected response. Check your changes before retrying.');
     return data;
   }
 
@@ -123,10 +130,28 @@
   // Screen toggles
   // ---------------------------------------------------------------
   function showAuthScreen() {
+    const app = document.getElementById('app');
+    const task = document.getElementById('task-modal');
+    const prompt = document.getElementById('prompt-modal');
+    const wasInWorkspace = !app.classList.contains('hidden') ||
+      !task.classList.contains('hidden') || !prompt.classList.contains('hidden');
+    // Expired sessions must never leave a modal floating above the sign-in form.
+    ++taskModalRequestSeq;
+    ++promptModalGeneration;
+    taskDetailCurrentId = null;taskDetailTab = 'details';commentReplyTo = null;
+    taskModalReturnFocus = null;
+    task.classList.add('hidden');prompt.classList.add('hidden');
+    prompt.setAttribute('aria-busy','false');
+    document.getElementById('prompt-confirm').disabled = false;
+    document.getElementById('prompt-cancel').disabled = false;
+    document.getElementById('prompt-error').hidden = true;
+    task.setAttribute('aria-hidden','true');
+    app.removeAttribute('aria-hidden');
     document.getElementById('auth-screen').classList.remove('hidden');
     document.getElementById('pw-screen').classList.add('hidden');
     document.getElementById('mfa-screen').classList.add('hidden');
-    document.getElementById('app').classList.add('hidden');
+    app.classList.add('hidden');
+    if (wasInWorkspace) document.querySelector('#login-form input[name="email"]')?.focus();
   }
   function showPasswordScreen() {
     document.getElementById('auth-screen').classList.add('hidden');
@@ -349,7 +374,22 @@
     announcementCursor = null;
     announcementShowArchive = false;
     await loadTeamContext();
-    setView(['org-dashboard','teams','users','org-activity','search','my-work','inbox','board','calendar','templates','time-reports','timesheet','workload','time-off','availability','leave-balances','holidays','milestones','portfolio','project-updates','project-risks','project-decisions','announcements','timeline'].includes(state.currentView) ? state.currentView : 'monthly');
+    setView(['org-dashboard','teams','users','org-activity','search','my-work','inbox','board','calendar','templates','time-reports','timesheet','workload','time-off','availability','leave-balances','holidays','milestones','portfolio','project-updates','project-risks','project-decisions','project-overview','task-reviews','announcements','timeline'].includes(state.currentView) ? state.currentView : 'monthly');
+  }
+
+  // Keep the current project per signed-in user/team in this browser tab.
+  // Only restore IDs still present in the server-authorized team list.
+  function projectPreferenceKey() { return `taskflow-project:${Number(state.user?.id)}:${Number(state.currentTeamId)}`; }
+  function rememberProjectSelection() {
+    if (!state.user || !state.currentTeamId || !state.currentListId) return;
+    try { sessionStorage.setItem(projectPreferenceKey(),String(Number(state.currentListId))); } catch (_) {}
+    document.dispatchEvent(new CustomEvent('taskflow:active-project',{detail:{id:Number(state.currentListId)}}));
+  }
+  function restoredProjectSelection(lists) {
+    let remembered=0;
+    try { remembered=Number(sessionStorage.getItem(projectPreferenceKey())||0); } catch (_) {}
+    const chosen=lists.find(l=>Number(l.id)===remembered);
+    return chosen?Number(chosen.id):(lists.length?Number(lists[0].id):null);
   }
 
   async function loadTeamContext() {
@@ -357,7 +397,11 @@
     try {
       const listData = await api('lists.php?team_id=' + state.currentTeamId);
       state.lists = listData.lists;
-      state.currentListId = state.lists.length ? state.lists[0].id : null;
+      state.currentListId = restoredProjectSelection(state.lists);
+      document.dispatchEvent(new CustomEvent('taskflow:project-context',{detail:{
+        team_id:Number(state.currentTeamId),current_id:Number(state.currentListId||0),
+        projects:state.lists.map(l=>({id:Number(l.id),name:String(l.name||'Project')}))
+      }}));
       const tagData = await api('tags.php?team_id=' + state.currentTeamId);
       state.tags = tagData.tags;
     } catch (err) {
@@ -367,6 +411,27 @@
     }
   }
 
+  // The lightweight workspace script may load after the first team context.
+  // Re-emit only already-authorized project names when its rail initializes.
+  document.addEventListener('taskflow:project-context-request',()=>{
+    if(!state.user || !state.currentTeamId)return;
+    document.dispatchEvent(new CustomEvent('taskflow:project-context',{detail:{
+      team_id:Number(state.currentTeamId),current_id:Number(state.currentListId||0),
+      projects:state.lists.map(l=>({id:Number(l.id),name:String(l.name||'Project')}))
+    }}));
+  });
+  // Project shortcuts are selected only from the server-authorized team list.
+  document.addEventListener('taskflow:select-project', event=>{
+    const id=Number(event.detail?.id);
+    if(!state.user || !Number.isSafeInteger(id) || !state.lists.some(l=>Number(l.id)===id))return;
+    state.currentListId=id;
+    rememberProjectSelection();
+    state.taskTab='view';
+    const requestedView=String(event.detail?.view||'tasks');
+    const projectViews=['tasks','project-overview','board','timeline','milestones','project-risks','project-decisions'];
+    setView(projectViews.includes(requestedView)?requestedView:'tasks');
+  });
+
   // ---------------------------------------------------------------
   // View switching
   // ---------------------------------------------------------------
@@ -375,15 +440,15 @@
     state.currentView = view;
     document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
     const titles = {
-      'my-work': 'My Work', board: 'Board', inbox: 'Inbox', calendar:'Calendar', timeline:'Project timeline', 'time-reports':'Time reports', timesheet:'Weekly timesheet', workload:'Workload planner', 'time-off':'Time off', availability:'Team availability', 'leave-balances':'Leave balances', holidays:'Team holidays', milestones:'Milestones', portfolio:'Project portfolio', 'project-updates':'Project updates', 'project-risks':'Project risks', 'project-decisions':'Project decisions', announcements:'Announcements', templates:'Templates', monthly: 'Monthly', tasks: 'Tasks', search: 'Search Tasks', 'team-dashboard': 'Team Dashboard', priorities: 'Weekly Goals',
+      'my-work': 'My Work', 'task-reviews':'Task reviews', 'project-overview':'Project overview', board: 'Board', inbox: 'Inbox', calendar:'Calendar', timeline:'Project timeline', 'time-reports':'Time reports', timesheet:'Weekly timesheet', workload:'Workload planner', 'time-off':'Time off', availability:'Team availability', 'leave-balances':'Leave balances', holidays:'Team holidays', milestones:'Milestones', portfolio:'Project portfolio', 'project-updates':'Project updates', 'project-risks':'Project risks', 'project-decisions':'Project decisions', announcements:'Announcements', templates:'Templates', monthly: 'Monthly', tasks: 'Tasks', search: 'Search Tasks', 'team-dashboard': 'Team Dashboard', priorities: 'Weekly Goals',
       roster: 'Team Members', activity: 'Activity', 'org-dashboard': 'Organization Dashboard',
       teams: 'Teams', users: 'Users', 'org-activity': 'Organization Activity', chat: 'Chat',
       'advanced-settings': 'Advanced Settings', 'my-account': 'My Account',
     };
     document.getElementById('view-title').textContent = titles[view] || 'TaskFlow';
     const adminViews = ['org-dashboard','teams','users','org-activity','advanced-settings'];
-    const collaborate = ['chat','roster','activity','announcements'];
-    const planning = ['calendar','timeline','templates','time-reports','timesheet','workload','time-off','availability','leave-balances','holidays','milestones','portfolio','project-updates','project-risks','project-decisions','monthly','priorities','team-dashboard'];
+    const collaborate = ['chat','roster','activity','announcements','task-reviews'];
+    const planning = ['calendar','timeline','templates','time-reports','timesheet','workload','time-off','availability','leave-balances','holidays','milestones','portfolio','project-updates','project-risks','project-decisions','project-overview','monthly','priorities','team-dashboard'];
     document.getElementById('view-overline').textContent = adminViews.includes(view) ? 'ORGANIZATION / ADMINISTRATION' : collaborate.includes(view) ? 'WORKSPACE / COLLABORATION' : planning.includes(view) ? 'WORKSPACE / PLANNING' : 'WORKSPACE / YOUR WORK';
     const descriptions = {
       'my-work':'Your priorities, without the noise.',
@@ -391,6 +456,7 @@
       tasks:'Plan and manage the details that matter.',
       search:'Find exactly what your team is working on.',
       inbox:'Updates and reminders, all in one place.',
+      'task-reviews':'Request feedback, approve finished work, and track review history.',
       calendar:'A clear calendar of every due date.',
       timeline:'A visual roadmap of tasks, milestones and deadlines.',
       templates:'Reusable starting points for repeatable work.',
@@ -402,6 +468,7 @@
       'leave-balances':'Review annual approved leave; managers can set advisory allowances.',
       holidays:'Plan shared holidays and keep workload availability accurate.',
       'project-updates':'Share delivery status, risks, and next steps across your team.',
+      'project-overview':'Progress, priorities and decisions for one project.',
       'project-risks':'Track project issues, mitigation plans and delivery risk.',
       'project-decisions':'Capture project choices, owners, outcomes and review dates.',
       announcements:'Team news, pinned notices and acknowledgements in one place.',
@@ -419,7 +486,7 @@
     if (view !== 'chat') stopChatPolling();
 
     const renderers = {
-      'my-work': renderMyWork, board: renderBoard, inbox: renderInbox, calendar:renderCalendar, timeline:renderTimeline, 'time-reports':renderTimeReports, timesheet:renderTimesheet, workload:renderWorkload, 'time-off':renderTimeOff, availability:renderAvailability, 'leave-balances':renderLeaveBalances, holidays:renderHolidays, milestones: renderMilestones, portfolio:renderPortfolio, 'project-updates':renderProjectUpdates, 'project-risks':renderProjectRisks, 'project-decisions':renderProjectDecisions, announcements:renderAnnouncements, templates:renderTemplates, monthly: renderMonthly, tasks: renderTasksView, search: renderSearchTasks, 'team-dashboard': () => renderDashboard('team'),
+      'my-work': renderMyWork, 'project-overview':renderProjectOverview, board: renderBoard, inbox: renderInbox, 'task-reviews':renderTaskReviews, calendar:renderCalendar, timeline:renderTimeline, 'time-reports':renderTimeReports, timesheet:renderTimesheet, workload:renderWorkload, 'time-off':renderTimeOff, availability:renderAvailability, 'leave-balances':renderLeaveBalances, holidays:renderHolidays, milestones: renderMilestones, portfolio:renderPortfolio, 'project-updates':renderProjectUpdates, 'project-risks':renderProjectRisks, 'project-decisions':renderProjectDecisions, announcements:renderAnnouncements, templates:renderTemplates, monthly: renderMonthly, tasks: renderTasksView, search: renderSearchTasks, 'team-dashboard': () => renderDashboard('team'),
       priorities: renderPriorities, roster: renderRoster, activity: () => renderActivity(state.currentTeamId),
       'org-dashboard': () => renderDashboard('org'), teams: renderTeamsAdmin, users: renderUsersAdmin,
       'org-activity': () => renderActivity(null), chat: renderChat, 'advanced-settings': renderAdvancedSettings,
@@ -430,10 +497,10 @@
 
   // TaskFlow: lightweight shell controls (no third-party runtime).
   const themeStorageKey = 'taskflow-appearance';
-  const appearanceOptions = ['light','dark','system','ocean','forest','lavender','sunset','midnight'];
+  const appearanceOptions = ['light','dark','system','ocean','forest','lavender','sunset','midnight','charcoal','black'];
   const systemThemeQuery = typeof window.matchMedia === 'function'
     ? window.matchMedia('(prefers-color-scheme: dark)') : null;
-  const darkPalettes = ['dark','midnight'];
+  const darkPalettes = ['dark','midnight','charcoal','black'];
   function setAppearance(preference, save=true) {
     const chosen = appearanceOptions.includes(preference) ? preference : 'light';
     const theme = chosen === 'system' ? (systemThemeQuery?.matches ? 'dark' : 'light')
@@ -460,7 +527,7 @@
       button.setAttribute('aria-pressed',String(button.dataset.themeChoice===chosen));
     });
     const themeColors={light:'#ffffff',dark:'#0c1822',ocean:'#f6faff',forest:'#f7faf6',
-      lavender:'#fbf9ff',sunset:'#fffaf6',midnight:'#0b1427'};
+      lavender:'#fbf9ff',sunset:'#fffaf6',midnight:'#0b1427',charcoal:'#202124',black:'#000000'};
     const meta=document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content',themeColors[chosen==='system'?theme:chosen] || '#ffffff');
     if (save) {
@@ -500,7 +567,9 @@
   });
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
+      if (!document.getElementById('quick-switch-modal').classList.contains('hidden')) return;
       if (!document.getElementById('prompt-modal').classList.contains('hidden')) {
+        e.preventDefault();
         document.getElementById('prompt-cancel').click();
       } else if (!document.getElementById('task-modal').classList.contains('hidden')) {
         closeTaskModal();
@@ -509,12 +578,107 @@
   });
   // Keyboard shortcut: Ctrl/Cmd+K opens team-scoped task search.
   document.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'k' && state.user && state.currentTeamId) {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'k' && state.user && state.currentTeamId
+      && document.getElementById('task-modal').classList.contains('hidden')
+      && document.getElementById('prompt-modal').classList.contains('hidden')) {
       e.preventDefault();
       setView('search');
       document.getElementById('task-search-q')?.focus();
     }
   });
+
+  // ---------------------------------------------------------------
+  // PROJECT OVERVIEW: one bounded, permission-scoped project health snapshot.
+  // ---------------------------------------------------------------
+  let projectOverviewRequestSeq = 0;
+  const overviewHealthText = {
+    empty:'Not started', complete:'Complete', on_track:'On track', attention:'Needs attention', at_risk:'At risk',
+  };
+  function overviewEmpty(message, icon='○') {
+    return `<div class="project-overview-empty"><span aria-hidden="true">${icon}</span><p>${esc(message)}</p></div>`;
+  }
+  async function renderProjectOverview() {
+    const container=document.getElementById('view-container');
+    if (!state.currentTeamId) {container.innerHTML=emptyTeamState();return;}
+    if (!state.lists.length) {
+      container.innerHTML='<div class="empty-state"><h3>No projects yet</h3><p>Create a task list to start tracking project health.</p><button type="button" class="btn btn-primary" id="overview-open-tasks">Go to projects</button></div>';
+      container.querySelector('#overview-open-tasks')?.addEventListener('click',()=>setView('tasks'));
+      return;
+    }
+    if (!state.currentListId || !state.lists.some(l=>Number(l.id)===Number(state.currentListId))) state.currentListId=Number(state.lists[0].id);
+    const actions=document.getElementById('topbar-actions');
+    actions.innerHTML=`<label class="overview-project-picker"><span>Project</span><select id="overview-project-select" aria-label="Choose project">${state.lists.map(l=>`<option value="${Number(l.id)}" ${Number(l.id)===Number(state.currentListId)?'selected':''}>${esc(l.name)}</option>`).join('')}</select></label><button class="btn btn-ghost" type="button" id="overview-refresh">Refresh</button>`;
+    actions.querySelector('#overview-project-select').addEventListener('change',event=>{
+      state.currentListId=Number(event.target.value);rememberProjectSelection();loadProjectOverview();
+    });
+    actions.querySelector('#overview-refresh').addEventListener('click',()=>loadProjectOverview());
+    container.innerHTML='<section class="project-overview-shell" id="project-overview" aria-live="polite"><p class="project-overview-loading">Loading project health…</p></section>';
+    container.onclick=event=>{
+      const task=event.target.closest('[data-overview-task]');
+      if (task) {openTaskModal(Number(task.dataset.overviewTask));return;}
+      const next=event.target.closest('[data-overview-destination]');
+      if (!next) return;
+      const view=next.dataset.overviewDestination;
+      const id=Number(state.currentListId);
+      if (view==='milestones') {milestoneListFilter=String(id);milestoneSelectedId=null;}
+      if (view==='project-risks') riskProjectFilter=String(id);
+      if (view==='project-decisions') decisionProjectFilter=String(id);
+      if (view==='project-updates') projectUpdateListFilter=String(id);
+      if (view==='tasks') state.taskTab='view';
+      if (['tasks','board','milestones','project-risks','project-decisions','project-updates'].includes(view)) setView(view);
+    };
+    await loadProjectOverview();
+  }
+  async function loadProjectOverview() {
+    const seq=++projectOverviewRequestSeq;
+    const teamId=Number(state.currentTeamId),listId=Number(state.currentListId);
+    const shell=document.getElementById('project-overview');
+    if (!shell) return;
+    shell.innerHTML='<p class="project-overview-loading">Loading project health…</p>';
+    try {
+      const qs=new URLSearchParams({team_id:String(teamId),list_id:String(listId)});
+      const result=await api('project_overview.php?'+qs.toString());
+      if (seq!==projectOverviewRequestSeq || state.currentView!=='project-overview' || Number(state.currentListId)!==listId || Number(state.currentTeamId)!==teamId || !shell.isConnected) return;
+      const t=result.tasks.counts,m=result.milestones.counts,r=result.risks.counts;
+      const total=Number(t.total||0),done=Number(t.completed||0);
+      const health=Object.hasOwn(overviewHealthText,result.tasks.health)?result.tasks.health:'empty';
+      const progress=Math.max(0,Math.min(100,Number(result.tasks.progress||0)));
+      const dateText=date=>date?fmtDate(date):'Not scheduled';
+      const taskList=result.tasks.upcoming.length?result.tasks.upcoming.map(task=>{
+        const priority=['urgent','high','normal','low','none'].includes(task.priority)?task.priority:'none';
+        return `<button type="button" class="overview-item overview-item-task" data-overview-task="${Number(task.id)}"><span class="overview-item-copy"><strong>${esc(task.title)}</strong><small>${esc(task.status?.replaceAll('_',' ')||'Open')} · ${esc(priority)} priority</small></span><span class="overview-item-date">${dateText(task.due_date)}</span></button>`;
+      }).join(''):overviewEmpty('No open tasks with due dates.');
+      const milestoneList=result.milestones.items.length?result.milestones.items.map(item=>
+        `<div class="overview-item"><span class="overview-item-copy"><strong>${esc(item.title)}</strong><small>Milestone</small></span><span class="overview-item-date">${dateText(item.due_date)}</span></div>`).join(''):overviewEmpty('No active milestones.');
+      const riskList=result.risks.items.length?result.risks.items.map(item=>{
+        const severity=['critical','high','medium','low'].includes(item.severity)?item.severity:'medium';
+        return `<div class="overview-item"><span class="overview-item-copy"><strong>${esc(item.title)}</strong><small>${esc(item.status)}</small></span><span class="overview-severity overview-severity-${severity}">${esc(severity)}</span></div>`;
+      }).join(''):overviewEmpty('No active risks or issues.');
+      const decisionList=result.decisions.items.length?result.decisions.items.map(item=>
+        `<div class="overview-item"><span class="overview-item-copy"><strong>${esc(item.title)}</strong><small>Review date</small></span><span class="overview-item-date">${dateText(item.review_date)}</span></div>`).join(''):overviewEmpty('No decisions awaiting review.');
+      const lastUpdate=result.latest_update;
+      const updateHtml=lastUpdate?`<div class="overview-last-update"><span class="overview-update-state">${esc(lastUpdate.status?.replaceAll('_',' ')||'Update')}</span><p>${esc(lastUpdate.summary)}</p><small>${esc(lastUpdate.author_name)} · ${esc(lastUpdate.created_at)}</small></div>`:
+        overviewEmpty('No project status updates yet.');
+      shell.innerHTML=`<div class="overview-header"><div><div class="overview-eyebrow">PROJECT / OVERVIEW</div><h2>${esc(result.project.name)}</h2><p>Everything that matters for this project, without switching between reports.</p></div><span class="overview-health overview-health-${health}">${overviewHealthText[health]}</span></div>
+      <div class="overview-progress"><div><strong>${progress}% complete</strong><span>${done} of ${total} tasks</span></div><div class="overview-progress-track" role="progressbar" aria-label="Project completion" aria-valuenow="${progress}" aria-valuemin="0" aria-valuemax="100"><span style="width:${progress}%"></span></div></div>
+      <div class="overview-metrics">
+        <div><strong>${Number(t.total)-done}</strong><span>Open tasks</span></div><div><strong>${Number(t.overdue)}</strong><span>Overdue tasks</span></div>
+        <div><strong>${Number(m.total)}</strong><span>Milestones</span></div><div><strong>${Number(r.active)}</strong><span>Active risks</span></div>
+        <div><strong>${Number(result.decisions.pending)}</strong><span>Pending decisions</span></div>
+      </div>
+      <div class="overview-sections">
+        <section class="overview-panel overview-panel-wide"><div class="overview-panel-heading"><div><span class="overview-kicker">UP NEXT</span><h3>Upcoming work</h3></div><button type="button" class="overview-panel-link" data-overview-destination="tasks">Open tasks <span aria-hidden="true">→</span></button></div><div>${taskList}</div></section>
+        <section class="overview-panel"><div class="overview-panel-heading"><div><span class="overview-kicker">DELIVERY</span><h3>Milestones</h3></div><button type="button" class="overview-panel-link" data-overview-destination="milestones">View all <span aria-hidden="true">→</span></button></div><div>${milestoneList}</div></section>
+        <section class="overview-panel"><div class="overview-panel-heading"><div><span class="overview-kicker">WATCH ITEMS</span><h3>Risks &amp; issues</h3></div><button type="button" class="overview-panel-link" data-overview-destination="project-risks">View all <span aria-hidden="true">→</span></button></div><div>${riskList}</div></section>
+        <section class="overview-panel"><div class="overview-panel-heading"><div><span class="overview-kicker">GOVERNANCE</span><h3>Decisions</h3></div><button type="button" class="overview-panel-link" data-overview-destination="project-decisions">View all <span aria-hidden="true">→</span></button></div><div>${decisionList}</div></section>
+        <section class="overview-panel"><div class="overview-panel-heading"><div><span class="overview-kicker">TEAM UPDATES</span><h3>Latest status</h3></div><button type="button" class="overview-panel-link" data-overview-destination="project-updates">View updates <span aria-hidden="true">→</span></button></div>${updateHtml}</section>
+      </div><p class="overview-footnote">Snapshot as of ${esc(new Date(result.as_of).toLocaleString())}. Milestone target-date counts do not imply unfinished work.</p>`;
+    } catch (error) {
+      if (seq!==projectOverviewRequestSeq || state.currentView!=='project-overview' || !shell.isConnected) return;
+      shell.innerHTML=`<div class="load-error-box" role="alert"><h3>Could not load project overview</h3><p>${esc(error.message)}</p><button type="button" class="btn btn-ghost" id="overview-retry">Try again</button></div>`;
+      shell.querySelector('#overview-retry')?.addEventListener('click',()=>loadProjectOverview());
+    }
+  }
 
   // ---------------------------------------------------------------
   // PROJECT PORTFOLIO: compact per-list health summary, lazy pages.
@@ -539,11 +703,13 @@
       <p class="portfolio-footnote">Progress counts all tasks in a list, including subtasks. Only active milestones affect health. Counts are current as of the last refresh.</p>`;
     // Replace the delegated handler on re-render so navigation never stacks listeners.
     container.onclick=event=>{
+      const overview=event.target.closest('[data-portfolio-overview]');
+      if(overview){const id=Number(overview.dataset.portfolioOverview);if(state.lists.some(l=>Number(l.id)===id)){state.currentListId=id;rememberProjectSelection();setView('project-overview');}return;}
       const list=event.target.closest('[data-portfolio-list]');
       if(list){
         const id=Number(list.dataset.portfolioList);
         if(!state.lists.some(l=>Number(l.id)===id))return;
-        state.currentListId=id;state.taskTab='view';setView('tasks');
+        state.currentListId=id;rememberProjectSelection();state.taskTab='view';setView('tasks');
       }
       const updates=event.target.closest('[data-portfolio-updates]');
       if(updates){projectUpdateListFilter=String(Number(updates.dataset.portfolioUpdates));setView('project-updates');return;}
@@ -596,7 +762,7 @@
           </div>
           <div class="portfolio-meta">${Number(p.critical_risks||0)?`<strong>${Number(p.critical_risks)} high/critical risk(s)</strong> · `:''}${Number(p.milestones_late) ? `<strong>${Number(p.milestones_late)} past-target milestones</strong> · ` : ''}
             ${hoursText(Number(p.remaining_estimate_minutes))} estimated remaining</div>
-          <div class="portfolio-actions"><button type="button" class="btn btn-primary" data-portfolio-list="${Number(p.id)}">Open tasks</button>
+          <div class="portfolio-actions"><button type="button" class="btn btn-primary" data-portfolio-overview="${Number(p.id)}">Overview</button><button type="button" class="btn btn-ghost" data-portfolio-list="${Number(p.id)}">Open tasks</button>
             <button type="button" class="btn btn-ghost" data-portfolio-milestone="${Number(p.id)}">Milestones</button>
             <button type="button" class="btn btn-ghost" data-portfolio-updates="${Number(p.id)}">Updates</button>
             <button type="button" class="btn btn-ghost" data-portfolio-risks="${Number(p.id)}">Risks</button>
@@ -1755,13 +1921,15 @@
     document.getElementById('topbar-actions').innerHTML = `
       ${listPicker}
       ${canManageLists ? '<button class="btn btn-ghost" id="new-list-btn">+ New list</button>' : ''}
+      <button type="button" class="btn btn-ghost" id="task-import-open">Import CSV</button>
     `;
     if (document.getElementById('list-picker')) {
       document.getElementById('list-picker').addEventListener('change', e => {
-        state.currentListId = Number(e.target.value);
+        state.currentListId = Number(e.target.value);rememberProjectSelection();
         renderTasksView();
       });
     }
+    document.getElementById('task-import-open')?.addEventListener('click',openTaskImportModal);
     if (document.getElementById('new-list-btn')) {
       document.getElementById('new-list-btn').addEventListener('click', () => {
         promptModal('New list', `<input id="p-list-name" placeholder="List name" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;">`, async () => {
@@ -1805,6 +1973,61 @@
 
     if (state.taskTab === 'add') renderAddTaskForm();
     else renderTaskTable(state.taskTab === 'view' ? null : state.taskTab);
+  }
+
+  // v3 task import: preview in the browser, validate again on the server,
+  // and create all selected rows in a single database transaction.
+  function openTaskImportModal() {
+    const teamId=Number(state.currentTeamId),listId=Number(state.currentListId);
+    let ready=[];
+    const template='title,description,priority,due_date,estimate_hours\nExample task,Optional details,high,2027-01-20,2.5\n';
+    promptModal('Import tasks from CSV', `
+      <div class="task-import-intro"><p>Import up to <strong>50 tasks</strong> into <strong>${esc(state.lists.find(l=>Number(l.id)===listId)?.name||'this project')}</strong>.</p>
+      <p>Columns: <code>title</code> (required), <code>description</code>, <code>priority</code>, <code>due_date</code>, <code>estimate_hours</code>.</p>
+      <p>Tasks begin as To do. Members are assigned to their own imports; managers create unassigned tasks.</p></div>
+      <div class="task-import-actions"><a id="task-import-template" class="btn btn-ghost" download="taskflow-tasks-template.csv" href="data:text/csv;charset=utf-8,${encodeURIComponent(template)}">Download template</a></div>
+      <label class="task-import-file-label" for="task-import-file">Select CSV file (maximum 128 KB)</label>
+      <input id="task-import-file" type="file" accept=".csv,text/csv" aria-describedby="task-import-status">
+      <div id="task-import-status" role="status" aria-live="polite" class="task-import-status">Choose a CSV file to preview its tasks.</div>
+      <div id="task-import-preview" class="task-import-preview"></div>
+    `,async()=>{
+      if(!ready.length)throw new Error('Select and preview a valid CSV file first.');
+      if(Number(state.currentTeamId)!==teamId || Number(state.currentListId)!==listId)throw new Error('The project changed. Reopen the import.');
+      const result=await api('task_import.php',{method:'POST',body:{team_id:teamId,list_id:listId,rows:ready}});
+      toast(`${Number(result.created)} tasks imported`);
+      state.taskTab='view';
+      renderTasksView();
+    });
+    const picker=document.getElementById('task-import-file');
+    const status=document.getElementById('task-import-status');
+    const preview=document.getElementById('task-import-preview');
+    picker?.addEventListener('change',async()=>{
+      ready=[];
+      preview.replaceChildren();
+      const file=picker.files?.[0];
+      if(!file){status.textContent='Select a CSV file to continue.';return;}
+      if(file.size>128*1024){status.textContent='File too large. Use a CSV smaller than 128 KB.';return;}
+      status.textContent='Checking CSV…';
+      try{
+        const contents=await file.text();
+        if(picker.files?.[0]!==file || !picker.isConnected || document.getElementById('prompt-modal')?.classList.contains('hidden'))return;
+        if(!window.TaskFlowCSV?.parse)throw new Error('CSV importer did not load. Refresh and retry.');
+        ready=window.TaskFlowCSV.parse(contents);
+        status.textContent=`Ready to import ${ready.length} tasks. Review the preview, then confirm.`;
+        const table=document.createElement('table');table.className='task-import-table';
+        table.innerHTML='<thead><tr><th>Title</th><th>Priority</th><th>Due</th><th>Hours</th></tr></thead>';
+        const body=document.createElement('tbody');
+        for(const row of ready.slice(0,12)){
+          const tr=document.createElement('tr');
+          for(const value of [row.title,row.priority,row.due_date||'—',row.estimate_hours||'—']){
+            const td=document.createElement('td');td.textContent=value;tr.appendChild(td);
+          }
+          body.appendChild(tr);
+        }
+        table.appendChild(body);preview.appendChild(table);
+        if(ready.length>12){const note=document.createElement('p');note.textContent=`Showing 12 of ${ready.length} rows.`;preview.appendChild(note);}
+      }catch(e){ready=[];preview.replaceChildren();status.textContent=e.message||'Could not read CSV.';}
+    });
   }
 
   function renderAddTaskForm() {
@@ -1875,12 +2098,65 @@
     });
   }
 
+  // TaskFlow v3: edit common task fields in the queue without opening the full dialog.
+  // Mutations continue through task.php: same CSRF, team, role and blocker checks.
+  const quickTaskValues={
+    status:[['to_do','To do'],['in_progress','In progress'],['review','Review'],['done','Done']],
+    priority:[['none','None'],['low','Low'],['normal','Normal'],['high','High'],['urgent','Urgent']]
+  };
+  const quickTaskSaving=new Set();
+  function quickTaskFieldHtml(task,field,editable){
+    const value=String(task[field]||''),label=field==='status'?'Status':'Priority';
+    const cls=field==='status'?'status-pill status-'+esc(value):'priority-pill priority-'+esc(value);
+    if(!editable)return `<span class="${cls}">${esc(value.replaceAll('_',' '))}</span>`;
+    const options=quickTaskValues[field].map(([key,name])=>`<option value="${key}" ${key===value?'selected':''}>${name}</option>`).join('');
+    return `<span class="task-quick-pill ${cls}"><select class="task-quick-select" data-quick-task-id="${Number(task.id)}" data-quick-field="${field}" data-original-value="${esc(value)}" aria-label="Change ${label.toLowerCase()} for ${esc(task.title)}" title="Change ${label.toLowerCase()}">${options}</select></span>`;
+  }
+  async function changeTaskQuickly(control,refresh){
+    const taskId=Number(control.dataset.quickTaskId),field=control.dataset.quickField;
+    const selected=control.value,original=control.dataset.originalValue;
+    if(!Number.isSafeInteger(taskId)||taskId<1||!Object.hasOwn(quickTaskValues,field)
+      ||!quickTaskValues[field].some(([key])=>key===selected)){
+      control.value=original;toast('Invalid task update.',true);return;
+    }
+    if(selected===original)return;
+    if(quickTaskSaving.has(taskId)){
+      control.value=original;toast('That task is already being updated.',true);return;
+    }
+    quickTaskSaving.add(taskId);
+    const otherControls=[...document.querySelectorAll('.task-quick-select')].filter(item=>Number(item.dataset.quickTaskId)===taskId);
+    otherControls.forEach(item=>{item.disabled=true;item.setAttribute('aria-busy','true');});
+    try{
+      await api('task.php',{method:'PATCH',body:{id:taskId,[field]:selected}});
+      control.dataset.originalValue=selected;
+      toast(field==='status'?'Task status updated':'Task priority updated');
+      try{await refresh();}catch(reloadError){toast('Saved, but the list could not refresh: '+reloadError.message,true);}
+    }catch(error){
+      if(control.isConnected)control.value=original;
+      toast(error.message,true);
+    }finally{
+      quickTaskSaving.delete(taskId);
+      otherControls.forEach(item=>{if(item.isConnected){item.disabled=false;item.removeAttribute('aria-busy');}});
+    }
+  }
+
   const bulkSelectedTasks = new Set();
   function updateBulkSelection(body) {
     const count=body.querySelector('#bulk-count');
     if (!count) return;
     count.textContent=bulkSelectedTasks.size + ' selected';
-    body.querySelector('#bulk-apply').disabled=bulkSelectedTasks.size===0;
+    const field=body.querySelector('#bulk-field')?.value;
+    const dateField=body.querySelector('#bulk-date');
+    const teammate=body.querySelector('#bulk-teammate');
+    const tag=body.querySelector('#bulk-tag');
+    const estimate=body.querySelector('#bulk-estimate');
+    const missingDate=(field==='due_date'||field==='start_date') && !/^\d{4}-\d{2}-\d{2}$/.test(dateField?.value||'');
+    const missingTeammate=(field==='assignee_add'||field==='assignee_remove') && !Number(teammate?.value);
+    const missingTag=(field==='tag_add'||field==='tag_remove') && !Number(tag?.value);
+    const missingEstimate=field==='estimate_minutes' && (!/^\d+$/.test(estimate?.value||'') || Number(estimate.value)<1 || Number(estimate.value)>24000);
+    body.querySelector('#bulk-apply').disabled=bulkSelectedTasks.size===0 || missingDate || missingTeammate || missingTag || missingEstimate;
+    const clear=body.querySelector('#bulk-clear-selection');
+    if(clear)clear.disabled=bulkSelectedTasks.size===0;
     const page=body.querySelector('#bulk-select-page');
     const checks=Array.from(body.querySelectorAll('.bulk-row-check:not(:disabled)'));
     page.checked=checks.length>0 && checks.every(c=>c.checked);
@@ -1929,8 +2205,8 @@
       return `<tr class="task-row ${t.status === 'done' ? 'is-done' : ''}" data-task="${t.id}">
         <td class="task-bulk-cell"><input class="bulk-row-check" type="checkbox" aria-label="Select ${esc(t.title)}" value="${Number(t.id)}" ${editable?'':'disabled'}></td>
         <td class="task-title-cell">${esc(t.title)}${subBadge}${blockedBadge}</td>
-        <td><span class="status-pill status-${esc(t.status)}">${esc(t.status.replace('_', ' '))}</span></td>
-        <td><span class="priority-pill priority-${esc(t.priority)}">${esc(t.priority)}</span></td>
+        <td>${quickTaskFieldHtml(t,'status',editable)}</td>
+        <td>${quickTaskFieldHtml(t,'priority',editable)}</td>
         <td>${t.due_date ? fmtDate(t.due_date) : '<span style="color:var(--text-faint)">—</span>'}</td>
         <td>${tags}</td>
         <td><span class="avatar-row">${assignees}</span></td>
@@ -1941,44 +2217,113 @@
       bulkSelectedTasks.clear();
       body.innerHTML = `<div class="bulk-toolbar" id="bulk-toolbar">
         <strong id="bulk-count">0 selected</strong>
-        <label>Action <select id="bulk-field" aria-label="Bulk action"><option value="status">Change status</option><option value="priority">Change priority</option></select></label>
+        <label>Action <select id="bulk-field" aria-label="Bulk action">
+          <optgroup label="Progress"><option value="status">Change status</option><option value="priority">Change priority</option></optgroup>
+          <optgroup label="Schedule"><option value="start_date">Set start date</option><option value="start_date_clear">Clear start date</option><option value="due_date">Set due date</option><option value="due_date_clear">Clear due date</option></optgroup>
+          <optgroup label="Planning"><option value="estimate_minutes">Set effort (minutes)</option><option value="estimate_clear">Clear effort estimate</option></optgroup>
+          <optgroup label="Labels"><option value="tag_add">Add label</option><option value="tag_remove">Remove label</option></optgroup>
+          ${iHave(['administrator','manager'])?'<optgroup label="People"><option value="assignee_add">Add assignee</option><option value="assignee_remove">Remove assignee</option></optgroup>':''}</select></label>
         <select id="bulk-value" aria-label="New value"></select>
+        <input id="bulk-date" type="date" aria-label="Start or due date" hidden>
+        <input id="bulk-estimate" type="number" min="1" max="24000" step="1" inputmode="numeric" placeholder="Minutes (1–24000)" aria-label="Estimated effort in minutes" hidden>
+        <select id="bulk-tag" aria-label="Team label" hidden><option value="">Choose label…</option>${state.tags.map(t=>`<option value="${Number(t.id)}">${esc(t.name)}</option>`).join('')}</select>
+        <select id="bulk-teammate" aria-label="Team member" hidden><option value="">Choose teammate…</option>${state.members.filter(u=>Number(u.team_id)===Number(state.currentTeamId)&&Number(u.is_active??1)===1).map(u=>`<option value="${Number(u.id)}">${esc(u.name)}</option>`).join('')}</select>
         <button type="button" class="btn btn-primary" id="bulk-apply" disabled>Apply to selected</button>
-        <span class="bulk-hint">50-task maximum. All selected tasks must be editable.</span>
+        <button type="button" class="btn btn-ghost" id="bulk-clear-selection" disabled>Clear selection</button>
+        <span class="bulk-hint" role="status" aria-live="polite">Select up to 50 editable tasks. Shift-click for a range; every change is atomic.</span>
       </div><div class="table-scroll"><table class="task-table">
         <thead><tr><th><input id="bulk-select-page" type="checkbox" aria-label="Select visible editable tasks (maximum 50)"></th><th>Task</th><th>Status</th><th>Priority</th><th>Due</th><th>Tags</th><th>Assignees</th></tr></thead>
         <tbody>${rows}</tbody>
       </table></div>`;
+      let selectionAnchor=null;
       const selectOptions = {
         status:[['to_do','To do'],['in_progress','In progress'],['review','Review'],['done','Done']],
         priority:[['none','None'],['low','Low'],['normal','Normal'],['high','High'],['urgent','Urgent']]
       };
       const updateValues = () => {
-        const field = document.getElementById('bulk-field').value;
-        document.getElementById('bulk-value').innerHTML = selectOptions[field].map(([v,label]) => `<option value="${v}">${label}</option>`).join('');
+        const field=body.querySelector('#bulk-field').value;
+        const dropdown=body.querySelector('#bulk-value');
+        const date=body.querySelector('#bulk-date');
+        const teammate=body.querySelector('#bulk-teammate');
+        const tag=body.querySelector('#bulk-tag');
+        const estimate=body.querySelector('#bulk-estimate');
+        dropdown.hidden=!selectOptions[field];
+        date.hidden=field!=='due_date' && field!=='start_date';
+        date.setAttribute('aria-label',field==='start_date'?'New start date':'New due date');
+        teammate.hidden=field!=='assignee_add' && field!=='assignee_remove';
+        tag.hidden=field!=='tag_add' && field!=='tag_remove';
+        estimate.hidden=field!=='estimate_minutes';
+        if(selectOptions[field])dropdown.innerHTML=selectOptions[field].map(([v,label])=>`<option value="${v}">${label}</option>`).join('');
+        updateBulkSelection(body);
       };
       updateValues();
-      body.querySelector('#bulk-field').addEventListener('change', updateValues);
+      body.querySelector('#bulk-field').addEventListener('change',updateValues);
+      body.querySelector('#bulk-date').addEventListener('input',()=>updateBulkSelection(body));
+      body.querySelector('#bulk-teammate').addEventListener('change',()=>updateBulkSelection(body));
+      body.querySelector('#bulk-tag').addEventListener('change',()=>updateBulkSelection(body));
+      body.querySelector('#bulk-estimate').addEventListener('input',()=>updateBulkSelection(body));
+      body.querySelector('#bulk-clear-selection').addEventListener('click',()=>{
+        bulkSelectedTasks.clear();
+        selectionAnchor=null;
+        body.querySelectorAll('.bulk-row-check').forEach(check=>{check.checked=false;});
+        updateBulkSelection(body);
+      });
       body.querySelector('#bulk-apply').addEventListener('click', async () => {
         if (!bulkSelectedTasks.size || bulkSelectedTasks.size > 50) return;
-        const field = body.querySelector('#bulk-field').value;
-        const value = body.querySelector('#bulk-value').value;
-        if (!confirm(`Apply ${field}: ${value.replaceAll('_',' ')} to ${bulkSelectedTasks.size} selected tasks?`)) return;
+        const field=body.querySelector('#bulk-field').value;
+        let value=body.querySelector('#bulk-value').value;
+        if(field==='due_date'||field==='start_date')value=body.querySelector('#bulk-date').value;
+        if(['due_date_clear','start_date_clear','estimate_clear'].includes(field))value=null;
+        if(field==='estimate_minutes')value=Number(body.querySelector('#bulk-estimate').value);
+        if(field==='tag_add'||field==='tag_remove')value=Number(body.querySelector('#bulk-tag').value);
+        if(field==='assignee_add'||field==='assignee_remove')value=Number(body.querySelector('#bulk-teammate').value);
+        const count=bulkSelectedTasks.size;
+        const label=field==='due_date_clear'?'clear due dates':field==='start_date_clear'?'clear start dates':field==='estimate_clear'?'clear estimates':
+          field==='due_date'?'set due date '+value:field==='start_date'?'set start date '+value:
+          field==='estimate_minutes'?'set estimate to '+value+' minutes':
+          field.startsWith('tag_')?`${field==='tag_add'?'add':'remove'} label ${body.querySelector('#bulk-tag').selectedOptions[0]?.textContent}`:
+          field.startsWith('assignee_')?`${field==='assignee_add'?'add':'remove'} teammate ${body.querySelector('#bulk-teammate').selectedOptions[0]?.textContent}`:
+          `${field.replaceAll('_',' ')}: ${String(value).replaceAll('_',' ')}`;
+        if(!confirm(`Apply ${label} to ${count} selected tasks?`))return;
         const button=body.querySelector('#bulk-apply');button.disabled=true;
         try {
           const response = await api('bulk.php',{ method:'POST',body:{
             team_id:Number(state.currentTeamId), task_ids:Array.from(bulkSelectedTasks),field,value
           }});
-          toast(`${response.changed} task(s) changed${response.recurring_created ? `; ${response.recurring_created} next recurring occurrence(s) created` : ''}`);
+          toast(`${response.changed} ${field.startsWith('assignee_')?'assignment(s)':field.startsWith('tag_')?'label(s)':'task(s)'} updated${response.recurring_created ? `; ${response.recurring_created} next recurring occurrence(s) created` : ''}`);
           renderTasksView();
         } catch(e) {toast(e.message,true);updateBulkSelection(body);}
       });
+      body.addEventListener('click',event=>{
+        const checkbox=event.target.closest('.bulk-row-check:not(:disabled)');
+        if(!checkbox)return;
+        const id=Number(checkbox.value);
+        if(event.shiftKey && selectionAnchor!==null){
+          const boxes=Array.from(body.querySelectorAll('.bulk-row-check:not(:disabled)'));
+          const start=boxes.findIndex(box=>Number(box.value)===selectionAnchor);
+          const finish=boxes.indexOf(checkbox);
+          if(start>=0 && finish>=0){
+            const desired=checkbox.checked;
+            for(let i=Math.min(start,finish);i<=Math.max(start,finish);i++){
+              const row=boxes[i],key=Number(row.value);
+              if(desired && (bulkSelectedTasks.size<50 || bulkSelectedTasks.has(key))){row.checked=true;bulkSelectedTasks.add(key);}
+              if(!desired){row.checked=false;bulkSelectedTasks.delete(key);}
+            }
+            updateBulkSelection(body);
+          }
+        }
+        selectionAnchor=id;
+      });
       body.onclick = event => {
-        if (event.target.closest('.task-bulk-cell') || event.target.closest('.bulk-toolbar') || event.target.closest('thead')) return;
+        if (event.target.closest('.task-bulk-cell') || event.target.closest('.bulk-toolbar') || event.target.closest('thead') || event.target.closest('.task-quick-select')) return;
         const row = event.target.closest('.task-row');
         if (row) openTaskModal(Number(row.dataset.task));
       };
       body.onchange = event => {
+        if(event.target.matches('.task-quick-select')){
+          changeTaskQuickly(event.target,async()=>{if(state.currentView==='tasks')await renderTasksView();});
+          return;
+        }
         if (event.target.matches('.bulk-row-check')) {
           const id=Number(event.target.value);
           if (event.target.checked && bulkSelectedTasks.size>=50 && !bulkSelectedTasks.has(id)) {
@@ -2573,33 +2918,54 @@
       input.addEventListener('blur', () => setTimeout(closeSuggestions, 150));
     }
 
+    let sending = false;
+    const sendButton = form.querySelector('button[type="submit"]');
     form.addEventListener('submit', async e => {
       e.preventDefault();
+      if (sending) return; // Duplicate clicks/Enter must not create duplicate messages.
       const content = input.value.trim();
       if (!content) return;
+      sending = true;
+      if (sendButton) sendButton.disabled = true;
       try {
-        await onSend(content);
-        input.value = '';
-        closeSuggestions();
-        const el = document.getElementById('chat-messages');
-        // Pull the message we just sent in immediately rather than waiting for the next poll.
-        if (chatSubTab === 'personal' && dmActiveUserId) {
-          const res = await api(`dm.php?with=${dmActiveUserId}&after_id=${chatLastId}`);
-          if (res.messages.length) {
-            const htmlFn = (m) => chatMessageHtml(m, { name: state.user.name, avatarColor: state.user.avatar_color });
-            appendMessagesInto('chat-messages', res.messages, htmlFn);
-            chatLastId = res.messages[res.messages.length - 1].id;
-          }
-        } else {
-          const scope = chatSubTab === 'org' ? 'org' : 'team';
-          const qs = scope === 'org' ? 'scope=org' : `scope=team&team_id=${state.currentTeamId}`;
-          const res = await api(`chat.php?${qs}&after_id=${chatLastId}`);
-          if (res.messages.length) {
-            appendMessagesInto('chat-messages', res.messages, chatMessageHtml);
-            chatLastId = res.messages[res.messages.length - 1].id;
-          }
+        try {
+          await onSend(content);
+        } catch (err) {
+          // Keep the draft intact on HTTP 429, network failure, or validation error.
+          if (form.isConnected) toast(err.message, true);
+          return;
         }
-      } catch (err) { toast(err.message, true); }
+        // The user might have switched rooms while the request was in flight.
+        if (!form.isConnected) return;
+        // Preserve any new draft typed while the previous send was in flight.
+        if (input.value.trim() === content) input.value = '';
+        closeSuggestions();
+        try {
+          // Refresh is best-effort after a confirmed send; a failed read-back
+          // must not mislead the user into retrying an already saved message.
+          if (chatSubTab === 'personal' && dmActiveUserId) {
+            const res = await api(`dm.php?with=${dmActiveUserId}&after_id=${chatLastId}`);
+            if (res.messages.length) {
+              const htmlFn = (m) => chatMessageHtml(m, { name: state.user.name, avatarColor: state.user.avatar_color });
+              appendMessagesInto('chat-messages', res.messages, htmlFn);
+              chatLastId = res.messages[res.messages.length - 1].id;
+            }
+          } else {
+            const scope = chatSubTab === 'org' ? 'org' : 'team';
+            const qs = scope === 'org' ? 'scope=org' : `scope=team&team_id=${state.currentTeamId}`;
+            const res = await api(`chat.php?${qs}&after_id=${chatLastId}`);
+            if (res.messages.length) {
+              appendMessagesInto('chat-messages', res.messages, chatMessageHtml);
+              chatLastId = res.messages[res.messages.length - 1].id;
+            }
+          }
+        } catch (err) {
+          if (form.isConnected) toast('Message sent. It will appear on the next refresh.');
+        }
+      } finally {
+        sending = false;
+        if (sendButton) sendButton.disabled = false;
+      }
     });
   }
 
@@ -3815,6 +4181,104 @@
   // PERSONAL WORK: user's own tasks with server-side team boundaries.
   // ---------------------------------------------------------------
   let myWorkCursor = null;
+  let myWorkRequestSeq = 0;
+  let myWorkVisibleTasks = [];
+  // ---------------------------------------------------------------
+  // TASK REVIEWS: manager decisions and team submission history.
+  // ---------------------------------------------------------------
+  let taskReviewScope = 'team';
+  let taskReviewStatus = 'pending';
+  let taskReviewCursor = null;
+  let taskReviewRows = [];
+  let taskReviewRequestSeq = 0;
+  const reviewLabels = {pending:'Awaiting review',approved:'Approved',changes_requested:'Changes requested',cancelled:'Cancelled'};
+  function taskReviewManager(){return iHave(['administrator','manager']);}
+  function taskReviewStatusLabel(key){return reviewLabels[key]||'Review';}
+  function taskReviewNoteForm(action,review) {
+    const required=action==='request_changes';
+    const title=action==='approve'?'Approve task review':required?'Request changes':'Cancel review';
+    const hint=required?'What should change before this task can be approved?':'Optional note for the review history';
+    promptModal(title,`<label for="p-task-review-note">${esc(hint)}</label>
+      <textarea id="p-task-review-note" maxlength="1000" rows="3" placeholder="${esc(hint)}" style="width:100%;min-height:100px;"></textarea>`,async()=>{
+      const note=document.getElementById('p-task-review-note').value.trim();
+      if(required && new TextEncoder().encode(note).length<5)throw new Error('Explain what should change (at least 5 bytes).');
+      await api('task_reviews.php',{method:'POST',body:{team_id:Number(state.currentTeamId),task_id:Number(review.task_id),
+        action,version:Number(review.version),note}});
+      toast(action==='approve'?'Task approved':required?'Changes requested':'Review cancelled');
+      await loadTaskReviews(false);
+    });
+  }
+  async function renderTaskReviews(){
+    const container=document.getElementById('view-container');
+    if(!state.currentTeamId){container.innerHTML=emptyTeamState();return;}
+    const manager=taskReviewManager();
+    if(!manager)taskReviewScope='mine';
+    container.innerHTML=`<section class="task-review-intro"><div><span class="section-kicker">TEAM DELIVERY</span>
+      <h2>Reviews, without the back-and-forth.</h2><p>Submit finished work, review feedback, and keep every decision in one place.</p></div>
+      <span class="task-review-pending" id="task-review-counter" aria-live="polite">Loading…</span></section>
+      <section class="task-review-panel"><div class="task-review-filters">
+        ${manager?`<label>Show<select id="task-review-scope"><option value="team">Team submissions</option><option value="mine">My requests</option></select></label>`:''}
+        <label>Status<select id="task-review-status"><option value="pending">Awaiting review</option>
+          <option value="approved">Approved</option><option value="changes_requested">Changes requested</option>
+          <option value="cancelled">Cancelled</option><option value="">All statuses</option></select></label>
+        <button type="button" class="btn btn-ghost" id="task-review-refresh">Refresh</button></div>
+        <div id="task-review-results" class="task-review-list" aria-live="polite">Loading…</div>
+        <div id="task-review-more" class="portfolio-more"></div></section>`;
+    const scopeSelect=container.querySelector('#task-review-scope');if(scopeSelect)scopeSelect.value=taskReviewScope;
+    container.querySelector('#task-review-status').value=taskReviewStatus;
+    scopeSelect?.addEventListener('change',event=>{taskReviewScope=event.target.value;loadTaskReviews(false);});
+    container.querySelector('#task-review-status').addEventListener('change',event=>{taskReviewStatus=event.target.value;loadTaskReviews(false);});
+    container.querySelector('#task-review-refresh').addEventListener('click',()=>loadTaskReviews(false));
+    container.querySelector('#task-review-results').addEventListener('click',event=>{
+      const button=event.target.closest('[data-review-action]');if(!button || button.disabled)return;
+      const item=taskReviewRows.find(row=>Number(row.id)===Number(button.dataset.reviewId));if(!item)return;
+      const action=button.dataset.reviewAction;
+      if(action==='open'){openTaskModal(item.task_id);return;}
+      if((action==='approve'||action==='request_changes')&&!item.can_review)return;
+      if(action==='cancel'&&!item.can_cancel)return;
+      taskReviewNoteForm(action,item);
+    });
+    await loadTaskReviews(false);
+  }
+  async function loadTaskReviews(append=false){
+    const feed=document.getElementById('task-review-results'),more=document.getElementById('task-review-more');
+    if(!feed||!more)return;
+    const teamId=Number(state.currentTeamId),scope=taskReviewScope,status=taskReviewStatus,request=++taskReviewRequestSeq;
+    if(!append){taskReviewCursor=null;taskReviewRows=[];feed.textContent='Loading reviews…';}
+    const params=new URLSearchParams({team_id:String(teamId),scope,status});
+    if(append&&taskReviewCursor)params.set('before_id',String(taskReviewCursor));
+    try{
+      const result=await api('task_reviews.php?'+params.toString());
+      if(request!==taskReviewRequestSeq||state.currentView!=='task-reviews'||teamId!==Number(state.currentTeamId)||scope!==taskReviewScope||status!==taskReviewStatus)return;
+      if(!append)feed.replaceChildren();
+      const counter=document.getElementById('task-review-counter');
+      if(counter)counter.textContent=`${Number(result.pending_count||0)} awaiting review`;
+      taskReviewRows.push(...result.reviews);
+      for(const item of result.reviews){
+        const card=document.createElement('article');card.className='task-review-card';
+        const statusKey=Object.hasOwn(reviewLabels,item.status)?item.status:'pending';
+        card.innerHTML=`<div class="task-review-header"><span class="task-review-status task-review-status-${statusKey}">${taskReviewStatusLabel(statusKey)}</span>
+            <span class="task-review-project">${esc(item.project_name)}</span></div>
+          <h3>${esc(item.title)}</h3>
+          <div class="task-review-meta"><span>Submitted by ${esc(item.submitted_name)}</span><span>${esc(item.submitted_at||'')}</span></div>
+          ${item.request_note?`<p class="task-review-note">${esc(item.request_note)}</p>`:''}
+          ${item.reviewer_note?`<p class="task-review-note task-review-feedback"><strong>Reviewer feedback:</strong> ${esc(item.reviewer_note)}</p>`:''}
+          <div class="task-review-actions"><button type="button" class="btn btn-ghost" data-review-action="open" data-review-id="${Number(item.id)}">View task</button>
+          ${item.can_review && taskReviewManager()?`<button type="button" class="btn btn-primary" data-review-action="approve" data-review-id="${Number(item.id)}">Approve</button>
+            <button type="button" class="btn btn-ghost" data-review-action="request_changes" data-review-id="${Number(item.id)}">Request changes</button>`:''}
+          ${item.can_cancel?`<button type="button" class="btn btn-ghost" data-review-action="cancel" data-review-id="${Number(item.id)}">Cancel</button>`:''}</div>`;
+        feed.appendChild(card);
+      }
+      if(!taskReviewRows.length)feed.innerHTML='<div class="empty-state"><h3>Nothing in this review queue</h3><p>Open a task and choose Request review when the work is ready.</p></div>';
+      taskReviewCursor=result.next_before_id;
+      more.innerHTML=taskReviewCursor?'<button type="button" class="btn btn-ghost">Load older reviews</button>':'';
+      more.querySelector('button')?.addEventListener('click',()=>loadTaskReviews(true));
+    }catch(error){
+      if(request!==taskReviewRequestSeq||state.currentView!=='task-reviews')return;
+      if(!append)feed.innerHTML=`<p class="load-error-box">${esc(error.message)}</p>`;else toast(error.message,true);
+    }
+  }
+
   async function renderMyWork() {
     myWorkCursor = null;
     const container = document.getElementById('view-container');
@@ -3822,76 +4286,104 @@
     const greeting = new Date().getHours() < 12 ? 'Good morning' : new Date().getHours() < 17 ? 'Good afternoon' : 'Good evening';
     const dateLabel = new Intl.DateTimeFormat(undefined,{weekday:'long',month:'long',day:'numeric'}).format(new Date());
     container.innerHTML = `<section class="work-hero v2-home-header" aria-labelledby="work-greeting">
-      <div class="work-hero-main"><div class="work-eyebrow">MY WORK <span class="work-eyebrow-separator">•</span> ${esc(dateLabel)}</div>
-      <h2 id="work-greeting">${greeting}, ${esc(firstName)} <span class="v2-home-wave" aria-hidden="true">✳</span></h2>
-      <p>Here’s what needs your attention today.</p></div>
+      <div class="work-hero-main"><div class="work-eyebrow">${esc(dateLabel)} <span class="work-eyebrow-separator">/</span> MY WORKSPACE</div>
+      <h2 id="work-greeting">${greeting}, ${esc(firstName)}</h2></div>
+      <button type="button" class="btn btn-ghost v3-work-open-project" id="v3-work-projects">View project tasks <span aria-hidden="true">↗</span></button>
     </section>
-    <div class="v2-home-grid"><section class="work-results-section v2-task-stream">
-      <div class="work-section-head"><div><span class="section-kicker">PERSONAL QUEUE</span><h3>My tasks</h3></div>
-      <span class="v2-task-count" id="v2-task-count" aria-live="polite">Your current work</span></div>
-      <div class="focus-shortcuts" role="group" aria-label="Quick task filters"><button type="button" data-work-filter="overdue">Overdue</button><button type="button" data-work-filter="today">Today</button><button type="button" data-work-filter="week">Next 7 days</button><button type="button" data-work-filter="favorites">Starred</button></div>
-      <details class="v2-filter-details"><summary><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#sliders"></use></svg>Advanced filters <span aria-hidden="true">⌄</span></summary>
+    <section class="work-results-section v2-task-stream" aria-labelledby="v3-work-list-heading">
+      <div class="work-section-head"><div><h3 id="v3-work-list-heading">My tasks</h3><span class="v3-work-subheading">Your current queue, all in one place</span></div>
+      <span class="v2-task-count" id="v2-task-count" aria-live="polite">Loading tasks…</span></div>
+      <div class="v3-work-control-row"><div class="focus-shortcuts" role="group" aria-label="Quick task filters">
+        <button type="button" data-work-filter="all" aria-pressed="true">Open tasks</button>
+        <button type="button" data-work-filter="overdue" aria-pressed="false">Overdue</button>
+        <button type="button" data-work-filter="today" aria-pressed="false">Today</button>
+        <button type="button" data-work-filter="week" aria-pressed="false">Next 7 days</button>
+        <button type="button" data-work-filter="favorites" aria-pressed="false">Starred</button>
+      </div>
+      <details class="v2-filter-details"><summary><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#sliders"></use></svg> Filters <span aria-hidden="true">⌄</span></summary>
       <form class="search-form" id="my-work-filters" aria-label="Filter your work">
         <select id="my-work-mode" aria-label="My work type"><option value="all">Created or assigned</option><option value="assigned">Assigned to me</option><option value="created">Created by me</option><option value="favorites">Starred tasks</option></select>
         <select id="my-work-due" aria-label="Due date"><option value="all">Any due date</option><option value="overdue">Overdue</option><option value="today">Due today</option><option value="week">Next 7 days</option><option value="upcoming">Upcoming</option><option value="none">Without due date</option></select>
         <select id="my-work-status" aria-label="Completion"><option value="open">Open tasks</option><option value="done">Completed</option><option value="all">All statuses</option></select>
-      </form></details>
+      </form></details></div>
+      <div class="v3-work-statline" id="v3-work-statline" aria-live="polite"><span class="v3-stat"><strong id="v3-work-open-count">—</strong> loaded</span><span class="v3-stat"><strong id="v3-work-overdue-count">—</strong> overdue</span><span class="v3-stat"><strong id="v3-work-today-count">—</strong> due today</span><span class="v3-stat-hint">Counts reflect tasks loaded below</span></div>
+      <div class="v3-work-columns" aria-hidden="true"><span>Task / project</span><span>Status</span><span>Priority</span><span>Due</span></div>
       <div class="search-results" id="my-work-results" aria-live="polite"></div>
-      </section>
-      <aside class="v2-home-aside" aria-label="Quick workspace access">
-        <div class="v2-aside-card v2-focus-card"><div class="v2-aside-eyebrow">KEEP MOVING</div><h3>Stay in flow</h3>
-        <p>A few places to pick up where you left off.</p>
-        <button type="button" data-v2-open="board"><span class="v2-mini-symbol">▦</span><span>Open the team board<small>Track progress across lanes</small></span><span aria-hidden="true">↗</span></button>
-        <button type="button" data-v2-open="calendar"><span class="v2-mini-symbol">◫</span><span>Check your calendar<small>Upcoming deadlines</small></span><span aria-hidden="true">↗</span></button>
-        <button type="button" data-v2-open="inbox"><span class="v2-mini-symbol">✉</span><span>Review your inbox<small>Updates from teammates</small></span><span aria-hidden="true">↗</span></button></div>
-        <div class="v2-aside-card v2-tip-card"><span class="v2-aside-eyebrow">TASKFLOW TIP</span><p>Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>K</kbd> to jump to any tool.</p></div>
-      </aside></div>`;
-    container.querySelectorAll('[data-v2-open]').forEach(b=>b.addEventListener('click',()=>{
-      document.querySelector(`.nav-item[data-view="${b.dataset.v2Open}"]`)?.click();
-    }));
+    </section>`;
+    container.querySelector('#v3-work-projects')?.addEventListener('click',()=>document.querySelector('.nav-item[data-view="tasks"]')?.click());
     container.querySelectorAll('[data-work-filter]').forEach(button => button.addEventListener('click',()=>{
       const filter=button.dataset.workFilter;
-      const mode=document.getElementById('my-work-mode'), due=document.getElementById('my-work-due');
+      const mode=document.getElementById('my-work-mode'), due=document.getElementById('my-work-due'), status=document.getElementById('my-work-status');
       if(filter==='favorites'){mode.value='favorites';due.value='all';}
       else {mode.value='all';due.value=filter;}
+      if(filter==='all') status.value='open';
       myWorkCursor=null;
       container.querySelectorAll('[data-work-filter]').forEach(el=>el.setAttribute('aria-pressed',String(el===button)));
       loadMyWork();
     }));
-    container.querySelectorAll('#my-work-filters select').forEach(el => el.addEventListener('change', () => { myWorkCursor = null; loadMyWork(); }));
+    const myWorkResults=container.querySelector('#my-work-results');
+    myWorkResults.addEventListener('click',event=>{
+      if(event.target.closest('.task-quick-select'))return;
+      const row=event.target.closest('.v3-work-task[data-task-id]');
+      if(row)openTaskModal(Number(row.dataset.taskId));
+    });
+    myWorkResults.addEventListener('change',event=>{
+      if(!event.target.matches('.task-quick-select'))return;
+      changeTaskQuickly(event.target,async()=>{
+        if(state.currentView==='my-work'){
+          myWorkCursor=null;
+          await loadMyWork();
+        }
+      });
+    });
+    container.querySelectorAll('#my-work-filters select').forEach(el => el.addEventListener('change', () => {
+      myWorkCursor = null;
+      const mode=document.getElementById('my-work-mode').value, due=document.getElementById('my-work-due').value,
+        status=document.getElementById('my-work-status').value;
+      container.querySelectorAll('[data-work-filter]').forEach(button=>{
+        const filter=button.dataset.workFilter;
+        button.setAttribute('aria-pressed',String(filter==='favorites' ? mode==='favorites' :
+          mode==='all' && due===filter && (filter!=='all'||status==='open')));
+      });
+      loadMyWork();
+    }));
     await loadMyWork();
   }
   async function loadMyWork() {
     const result = document.getElementById('my-work-results');
     if (!result || state.currentView !== 'my-work') return;
-    const append = !!myWorkCursor;
-    const params = new URLSearchParams({ mode:document.getElementById('my-work-mode').value,
-      due:document.getElementById('my-work-due').value, status:document.getElementById('my-work-status').value, limit:'30' });
-    if (myWorkCursor) params.set('before_id',String(myWorkCursor));
-    if (!append) result.innerHTML = '<p>Loading your tasks…</p>';
+    const requestId=++myWorkRequestSeq;
+    const append=!!myWorkCursor;
+    const params=new URLSearchParams({mode:document.getElementById('my-work-mode').value,
+      due:document.getElementById('my-work-due').value,status:document.getElementById('my-work-status').value,limit:'30'});
+    if(myWorkCursor)params.set('before_id',String(myWorkCursor));
+    if(!append){myWorkVisibleTasks=[];result.innerHTML='<p class="v3-work-loading">Loading tasks…</p>';}
     try {
-      const data = await api('my_work.php?' + params);
-      if (!document.getElementById('my-work-results') || state.currentView !== 'my-work') return;
+      const data=await api('my_work.php?'+params);
+      if(requestId!==myWorkRequestSeq || !document.getElementById('my-work-results') || state.currentView!=='my-work')return;
       result.querySelector('#my-work-more')?.remove();
-      if (!append) result.innerHTML = '';
+      if(!append)result.replaceChildren();
+      myWorkVisibleTasks.push(...data.tasks);
+      const count=myWorkVisibleTasks.length;
       const loadedCount=document.getElementById('v2-task-count');
-      if(loadedCount){const prior=append ? Number(loadedCount.dataset.loaded||0):0; const count=prior+data.tasks.length;loadedCount.dataset.loaded=String(count);loadedCount.textContent=count+' task'+(count===1?'':'s')+' loaded';}
-      if (!data.tasks.length && !append) { result.innerHTML = '<div class="empty-state"><h3>All clear</h3><p>No tasks match your filters.</p></div>'; return; }
-      const list = document.createElement('div');
-      list.className='search-result-list';
-      list.innerHTML = data.tasks.map(t => `<button class="search-result" type="button" data-task-id="${Number(t.id)}">
-        <span><strong>${esc(t.title)}</strong><small>${esc(t.team_name)} · ${esc(t.list_name)} · ${esc(t.status.replaceAll('_',' '))}</small></span>
-        <span class="priority-pill priority-${esc(t.priority)}">${esc(t.priority)}</span>
-        <span class="search-due ${isOverdue(t) ? 'due-overdue':''}">${t.due_date ? fmtDate(t.due_date) : 'No due date'}</span>
-      </button>`).join('');
-      list.querySelectorAll('[data-task-id]').forEach(btn => btn.addEventListener('click', () => openTaskModal(Number(btn.dataset.taskId))));
+      if(loadedCount)loadedCount.textContent=count+' task'+(count===1?'':'s')+' loaded';
+      const today=new Date().toISOString().slice(0,10);
+      const counts={overdue:myWorkVisibleTasks.filter(t=>isOverdue(t)).length,
+        dueToday:myWorkVisibleTasks.filter(t=>t.due_date===today && t.status!=='done').length};
+      const setCount=(id,value)=>{const target=document.getElementById(id);if(target)target.textContent=String(value);};
+      setCount('v3-work-open-count',count);setCount('v3-work-overdue-count',counts.overdue);setCount('v3-work-today-count',counts.dueToday);
+      if(!data.tasks.length&&!append){result.innerHTML='<div class="empty-state"><h3>All caught up</h3><p>No tasks match this view. Choose Open tasks to reset your filters.</p></div>';myWorkCursor=null;return;}
+      const list=document.createElement('div');list.className='search-result-list';
+      list.innerHTML=data.tasks.map(t=>`<div class="search-result v3-work-task" role="group" data-task-id="${Number(t.id)}" aria-label="Task ${esc(t.title)}">
+        <button class="v3-work-task-main v3-work-task-open" type="button" aria-label="Open task: ${esc(t.title)}"><strong>${esc(t.title)}</strong><small>${esc(t.team_name)} · ${esc(t.list_name)}</small></button>
+        <span class="v3-work-task-status">${quickTaskFieldHtml(t,'status',Boolean(t.can_edit))}</span>
+        <span class="v3-work-task-priority">${quickTaskFieldHtml(t,'priority',Boolean(t.can_edit))}</span>
+        <span class="search-due ${isOverdue(t)?'due-overdue':''}">${t.due_date?fmtDate(t.due_date):'—'}</span>
+      </div>`).join('');
       result.appendChild(list);
-      myWorkCursor = data.next_before_id;
-      if (myWorkCursor) {
-        const more=document.createElement('button');more.id='my-work-more';more.className='btn btn-ghost';more.textContent='Load more work';
-        more.addEventListener('click',loadMyWork);result.appendChild(more);
-      }
-    } catch(e) { if (!append) result.innerHTML = `<p role="alert">${esc(e.message)}</p>`; else toast(e.message,true); }
+      myWorkCursor=data.next_before_id;
+      if(myWorkCursor){const more=document.createElement('button');more.id='my-work-more';more.className='btn btn-ghost';more.type='button';more.textContent='Load more tasks';more.addEventListener('click',()=>{more.disabled=true;loadMyWork();});result.appendChild(more);}
+    }catch(e){if(requestId!==myWorkRequestSeq)return;if(!append)result.innerHTML=`<p role="alert">${esc(e.message)}</p>`;else{toast(e.message,true);const retry=result.querySelector('#my-work-more');if(retry)retry.disabled=false;}}
   }
   function isOverdue(task) { return !!task.due_date && task.status !== 'done' && task.due_date < new Date().toISOString().slice(0,10); }
 
@@ -3909,7 +4401,7 @@
     if (!state.currentTeamId) { container.innerHTML=emptyTeamState(); return; }
     Object.keys(boardCursors).forEach(k => delete boardCursors[k]);
     container.innerHTML = `<div class="v2-view-intro"><div><span>TEAM PROJECTS</span><h2>Board overview</h2><p>Follow work as it moves from idea to done.</p></div><span class="v2-view-intro-hint">Drag a card to update its status</span></div>
-      <div class="board-toolbar"><label><input type="checkbox" id="board-mine" ${boardMine?'checked':''}> Only my work</label><button type="button" class="btn btn-ghost" id="board-refresh">Refresh board</button></div>
+      <div class="board-toolbar"><label><input type="checkbox" id="board-mine" ${boardMine?'checked':''}> Only my work</label><span class="v3-board-hint">Drag tasks across columns to update their status</span><button type="button" class="btn btn-ghost" id="board-refresh">Refresh</button></div>
       <div class="kanban-board" id="kanban-board">${boardStatuses.map(([status,label]) => `<section class="board-lane" data-lane="${status}" aria-label="${label}">
         <h3><span class="status-pill status-${status}">${label}</span><span class="board-count" id="board-count-${status}"></span></h3>
         <div class="board-items" id="board-items-${status}" data-drop-status="${status}"><p class="board-hint">Loading…</p></div>
@@ -3971,64 +4463,165 @@
   }
 
   // ---------------------------------------------------------------
-  // IN-APP INBOX: respects user identity, with bounded pagination.
+  // IN-APP INBOX: personal search, category triage, and bounded batch actions.
   // ---------------------------------------------------------------
-  let inboxCursor=null;
+  let inboxCursor = null;
+  let inboxRequestSeq = 0;
+  const inboxSelected = new Set();
+  let inboxSearchTimer = null;
   async function refreshInboxBadge() {
     try {
       const data=await api('inbox.php?limit=1');
       const badge=document.getElementById('inbox-badge');
-      if (badge) { badge.textContent=data.unread_count > 99 ? '99+' : String(data.unread_count);badge.classList.toggle('hidden',!data.unread_count); }
-    } catch(e) { /* optional badge: never interrupt other work */ }
+      if (badge) { badge.textContent=data.unread_count>99?'99+':String(data.unread_count);badge.classList.toggle('hidden',!data.unread_count); }
+    } catch (e) { /* badge is optional; never interrupt work */ }
+  }
+  function inboxSelectionState() {
+    const root=document.getElementById('inbox-results');
+    if(!root)return;
+    const count=document.getElementById('inbox-selected-count');
+    if(count)count.textContent=`${inboxSelected.size} selected`;
+    for(const id of ['inbox-selected-read','inbox-selected-unread','inbox-clear-selection']){
+      const button=document.getElementById(id);
+      if(button)button.disabled=!inboxSelected.size;
+    }
+    const boxes=Array.from(root.querySelectorAll('.inbox-row-select'));
+    const selectPage=document.getElementById('inbox-select-page');
+    if(selectPage){
+      const checked=boxes.filter(x=>inboxSelected.has(Number(x.value))).length;
+      selectPage.checked=Boolean(boxes.length&&checked===boxes.length);
+      selectPage.indeterminate=checked>0&&checked<boxes.length;
+    }
+  }
+  function inboxReset() {
+    inboxCursor=null;
+    inboxSelected.clear();
+    inboxSelectionState();
+    loadInbox();
   }
   async function renderInbox() {
     inboxCursor=null;
+    inboxSelected.clear();
     const container=document.getElementById('view-container');
-    container.innerHTML=`<div class="inbox-toolbar"><div class="feature-intro"><h2>Inbox</h2><p>Team activity and mentions, even with browser alerts disabled.</p></div>
-      <label><input id="inbox-unread" type="checkbox"> Unread only</label><button type="button" id="inbox-mark-all" class="btn btn-ghost">Mark latest 500 read</button></div>
-      <div id="inbox-results" class="search-results" aria-live="polite"></div>`;
-    document.getElementById('inbox-unread').addEventListener('change',()=>{ inboxCursor=null; loadInbox(); });
-    document.getElementById('inbox-mark-all').addEventListener('click',async ()=>{
-      try {const result=await api('inbox.php',{method:'POST',body:{action:'read_all'}});
-        await refreshInboxBadge();inboxCursor=null;await loadInbox();
-        if (result.unread_count>0) toast(`${result.unread_count} older notifications are still unread`);
-      } catch(e) { toast(e.message,true); }
+    container.innerHTML=`<section class="inbox-shell"><div class="inbox-heading"><div><span class="section-kicker">YOUR NOTIFICATIONS</span><h2>Inbox</h2><p>Assignments, messages, and mentions. Organized your way.</p></div><button type="button" id="inbox-mark-all" class="btn btn-ghost">Mark latest 500 read</button></div>
+      <div class="inbox-filters"><label>Type <select id="inbox-category" aria-label="Notification type"><option value="">All activity</option><option value="new_tasks">Tasks & updates</option><option value="messages">Messages</option><option value="mentions">Mentions</option></select></label>
+        <label>Find <input type="search" id="inbox-search" maxlength="80" placeholder="Search notifications…" autocomplete="off" aria-label="Search notification text"></label>
+        <label class="inbox-unread-filter"><input id="inbox-unread" type="checkbox"> Unread only</label></div>
+      <div class="inbox-selection-bar"><label class="inbox-page-select"><input type="checkbox" id="inbox-select-page" aria-label="Select visible notifications"> Select visible</label><span id="inbox-selected-count" aria-live="polite">0 selected</span>
+        <button type="button" class="btn btn-ghost" id="inbox-selected-read" disabled>Mark selected read</button><button type="button" class="btn btn-ghost" id="inbox-selected-unread" disabled>Mark selected unread</button>
+        <button type="button" class="btn btn-ghost" id="inbox-clear-selection" disabled>Clear</button></div>
+      <div id="inbox-results" class="search-results" aria-live="polite"></div></section>`;
+    container.querySelector('#inbox-category').addEventListener('change',inboxReset);
+    container.querySelector('#inbox-unread').addEventListener('change',inboxReset);
+    container.querySelector('#inbox-search').addEventListener('input',()=>{
+      if(inboxSearchTimer!==null)clearTimeout(inboxSearchTimer);
+      inboxSearchTimer=setTimeout(()=>{inboxSearchTimer=null;inboxReset();},160);
+    });
+    container.querySelector('#inbox-mark-all').addEventListener('click',async event=>{
+      const button=event.currentTarget;button.disabled=true;
+      try {
+        const result=await api('inbox.php',{method:'POST',body:{action:'read_all'}});
+        await refreshInboxBadge();inboxReset();
+        if(result.unread_count>0)toast(`${result.unread_count} older notifications are still unread`);
+      }catch(error){toast(error.message,true);}finally{button.disabled=false;}
+    });
+    container.querySelector('#inbox-select-page').addEventListener('change',event=>{
+      const boxes=Array.from(container.querySelectorAll('.inbox-row-select'));
+      if(event.target.checked){
+        for(const checkbox of boxes){
+          if(inboxSelected.size>=25&&!inboxSelected.has(Number(checkbox.value)))break;
+          inboxSelected.add(Number(checkbox.value));checkbox.checked=true;
+        }
+      }else boxes.forEach(checkbox=>{inboxSelected.delete(Number(checkbox.value));checkbox.checked=false;});
+      inboxSelectionState();
+    });
+    container.querySelector('#inbox-clear-selection').addEventListener('click',()=>{
+      inboxSelected.clear();
+      container.querySelectorAll('.inbox-row-select').forEach(box=>{box.checked=false;});
+      inboxSelectionState();
+    });
+    for(const [buttonId,action] of [['inbox-selected-read','read_selected'],['inbox-selected-unread','unread_selected']]){
+      container.querySelector('#'+buttonId).addEventListener('click',async event=>{
+        if(!inboxSelected.size)return;
+        const button=event.currentTarget;button.disabled=true;
+        try {
+          const result=await api('inbox.php',{method:'POST',body:{action,ids:Array.from(inboxSelected)}});
+          toast(`${Number(result.updated_count||0)} notification(s) updated`);
+          await refreshInboxBadge();inboxReset();
+        } catch(error){toast(error.message,true);inboxSelectionState();}
+      });
+    }
+    container.querySelector('#inbox-results').addEventListener('change',event=>{
+      if(!event.target.matches('.inbox-row-select'))return;
+      const id=Number(event.target.value);
+      if(event.target.checked){
+        if(inboxSelected.size>=25&&!inboxSelected.has(id)){
+          event.target.checked=false;toast('Select up to 25 notifications at a time.',true);return;
+        }
+        inboxSelected.add(id);
+      }else inboxSelected.delete(id);
+      inboxSelectionState();
+    });
+    container.querySelector('#inbox-results').addEventListener('click',async event=>{
+      const button=event.target.closest('button[data-inbox-action]');if(!button||button.disabled)return;
+      const action=button.dataset.inboxAction,id=Number(button.dataset.noteId);
+      if(!['read','unread'].includes(action)||!Number.isSafeInteger(id))return;
+      button.disabled=true;
+      try {
+        await api('inbox.php',{method:'POST',body:{action,id}});
+        if(state.currentView!=='inbox'||!button.isConnected)return;
+        if(document.getElementById('inbox-unread')?.checked){await refreshInboxBadge();inboxReset();return;}
+        const item=button.closest('.inbox-item');
+        item.classList.toggle('unread',action==='unread');
+        button.dataset.inboxAction=action==='read'?'unread':'read';
+        button.textContent=action==='read'?'Mark unread':'Mark read';
+        await refreshInboxBadge();
+      } catch(error){toast(error.message,true);}finally{button.disabled=false;}
     });
     await loadInbox();
   }
   async function loadInbox() {
     const container=document.getElementById('inbox-results');
-    if (!container || state.currentView!=='inbox') return;
-    const append=!!inboxCursor;
+    if(!container||state.currentView!=='inbox')return;
+    const request=++inboxRequestSeq;
+    const cursor=inboxCursor;
+    const append=Boolean(cursor);
     const params=new URLSearchParams({limit:'25',unread:document.getElementById('inbox-unread').checked?'1':'0'});
-    if (inboxCursor) params.set('before_id',String(inboxCursor));
-    if (!append) container.innerHTML='<p>Loading notifications…</p>';
+    const category=document.getElementById('inbox-category').value;
+    const query=document.getElementById('inbox-search').value.trim();
+    if(category)params.set('category',category);
+    if(query)params.set('q',query);
+    if(cursor)params.set('before_id',String(cursor));
+    if(!append)container.innerHTML='<p class="inbox-loading">Loading notifications…</p>';
     try {
       const data=await api('inbox.php?'+params);
-      if (state.currentView!=='inbox' || !document.getElementById('inbox-results')) return;
-      if (!append) container.innerHTML='';
+      if(request!==inboxRequestSeq||state.currentView!=='inbox'||!container.isConnected)return;
+      if(!append)container.innerHTML='';
       container.querySelector('#inbox-load-more')?.remove();
-      if (!data.notifications.length&&!append) {container.innerHTML='<div class="empty-state"><h3>Your inbox is clear</h3><p>Notifications will appear here as work happens.</p></div>';return;}
+      if(!data.notifications.length&&!append){
+        container.innerHTML='<div class="empty-state"><h3>No matching notifications</h3><p>Try another category or clear the search.</p></div>';
+        inboxSelectionState();return;
+      }
       const list=document.createElement('div');list.className='inbox-list';
-      list.innerHTML=data.notifications.map(n => `<article class="inbox-item ${n.is_read?'':'unread'}" data-note-id="${Number(n.id)}">
-        <div class="inbox-marker" aria-hidden="true"></div><div class="inbox-content"><strong>${esc(n.title)}</strong>
-        <p>${esc(n.body)}</p><small>${esc(n.created_at)} · ${esc(n.category.replaceAll('_',' '))}</small></div>
-        ${n.is_read?'':`<button type="button" class="btn btn-ghost inbox-read" data-note-id="${Number(n.id)}">Mark read</button>`}</article>`).join('');
-      list.querySelectorAll('.inbox-read').forEach(btn => btn.addEventListener('click', async () => {
-        try { await api('inbox.php',{method:'POST',body:{action:'read',id:Number(btn.dataset.noteId)}});
-          btn.closest('.inbox-item').classList.remove('unread');btn.remove();await refreshInboxBadge();
-        } catch(e) {toast(e.message,true);}
-      }));
+      const labels={messages:'Message',new_tasks:'Task update',mentions:'Mention'};
+      list.innerHTML=data.notifications.map(n=>`<article class="inbox-item ${n.is_read?'':'unread'}" data-note-id="${Number(n.id)}">
+        <label class="inbox-select-cell"><input class="inbox-row-select" type="checkbox" value="${Number(n.id)}" aria-label="Select ${esc(n.title)}" ${inboxSelected.has(Number(n.id))?'checked':''}></label>
+        <div class="inbox-marker" aria-hidden="true"></div><div class="inbox-content"><div class="inbox-content-heading"><strong>${esc(n.title)}</strong><span class="inbox-category">${esc(labels[n.category]||'Update')}</span></div>
+        <p>${esc(n.body)}</p><small>${esc(n.created_at)}</small></div>
+        <button type="button" class="btn btn-ghost ${n.is_read?'inbox-unread':'inbox-read'}" data-inbox-action="${n.is_read?'unread':'read'}" data-note-id="${Number(n.id)}">${n.is_read?'Mark unread':'Mark read'}</button></article>`).join('');
       container.appendChild(list);
       inboxCursor=data.next_before_id;
-      if (inboxCursor) {const more=document.createElement('button');more.className='btn btn-ghost';more.id='inbox-load-more';more.textContent='Load older notifications';
-        more.addEventListener('click',loadInbox);container.appendChild(more);}
+      if(inboxCursor){const button=document.createElement('button');button.className='btn btn-ghost';button.id='inbox-load-more';button.textContent='Load older notifications';
+        button.addEventListener('click',()=>{button.disabled=true;loadInbox();});container.appendChild(button);}
+      inboxSelectionState();
       const badge=document.getElementById('inbox-badge');
-      if (badge) { badge.textContent=data.unread_count>99?'99+':String(data.unread_count);badge.classList.toggle('hidden',!data.unread_count); }
-    } catch(e) {if (!append) container.innerHTML=`<p role="alert">${esc(e.message)}</p>`;else toast(e.message,true);}
+      if(badge){badge.textContent=data.unread_count>99?'99+':String(data.unread_count);badge.classList.toggle('hidden',!data.unread_count);}
+    } catch(error) {
+      if(request!==inboxRequestSeq||state.currentView!=='inbox'||!container.isConnected)return;
+      if(!append)container.innerHTML=`<p role="alert">${esc(error.message)}</p>`;else toast(error.message,true);
+    }
   }
 
-  // ---------------------------------------------------------------
   // ---------------------------------------------------------------
   // SEARCH: user-owned saved filters plus paginated team-scoped results.
   // ---------------------------------------------------------------
@@ -4448,12 +5041,12 @@
   async function openNewUserPrompt() {
     const teamOptions = await teamOptionsHtml(null);
     promptModal('New account', `
-      <div class="field-group" style="margin-bottom:8px;"><input id="u-name" placeholder="Full name" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"></div>
-      <div class="field-group" style="margin-bottom:8px;"><input id="u-email" type="email" placeholder="Email" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"></div>
-      <div class="field-group" style="margin-bottom:12px;"><input id="u-pass" type="password" autocomplete="new-password" placeholder="Temporary password (min 12 bytes)" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"></div>
+      <div class="field-group" style="margin-bottom:8px;"><label class="sr-only" for="u-name">Full name</label><input id="u-name" placeholder="Full name" autocomplete="name" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"></div>
+      <div class="field-group" style="margin-bottom:8px;"><label class="sr-only" for="u-email">Email address</label><input id="u-email" type="email" placeholder="Email" autocomplete="email" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"></div>
+      <div class="field-group" style="margin-bottom:12px;"><label class="sr-only" for="u-pass">Temporary password (at least 12 bytes)</label><input id="u-pass" type="password" autocomplete="new-password" placeholder="Temporary password (min 12 bytes)" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;"></div>
       <div class="field-group" style="margin-bottom:8px;">
         <label style="display:block;margin-bottom:6px;">Roles (select one or more — e.g. Administrator AND Manager)</label>
-        <div class="role-checkbox-group">${roleCheckboxesHtml(['member'])}</div>
+        <div class="role-checkbox-group" role="group" aria-label="Account permissions">${roleCheckboxesHtml(['member'])}</div>
       </div>
       <select id="u-team" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;">
         <option value="">No team</option>${teamOptions}
@@ -4465,11 +5058,10 @@
       const password = document.getElementById('u-pass').value;
       const roles = Array.from(document.querySelectorAll('.u-role-check:checked')).map(cb => cb.value);
       const team_id = document.getElementById('u-team').value || null;
-      try {
-        await api('users.php', { method: 'POST', body: { name, email, password, roles, team_id } });
-        toast('Account created');
-        renderUsersAdmin();
-      } catch (err) { toast(err.message, true); }
+      // Let promptModal surface failures without dismissing or discarding credentials.
+      await api('users.php', { method: 'POST', body: { name, email, password, roles, team_id } });
+      toast('Account created');
+      renderUsersAdmin();
     });
   }
 
@@ -4498,25 +5090,94 @@
   }
 
   // ---------------------------------------------------------------
+  // MODAL KEYBOARD ACCESSIBILITY (task details and secondary prompts).
+  // ---------------------------------------------------------------
+  const dialogFocusableSelector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  function dialogFocusables(modal) {
+    return [...modal.querySelectorAll(dialogFocusableSelector)].filter(el =>
+      el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden' &&
+      !el.closest('[hidden], .hidden'));
+  }
+  function returnDialogFocus(previous) {
+    for (const target of [previous, document.getElementById('tm-tab-' + taskDetailTab),
+      document.getElementById('close-task-modal'), document.getElementById('quick-switch-btn')]) {
+      if (target?.isConnected && target.getClientRects().length) { target.focus(); break; }
+    }
+  }
+  let taskModalReturnFocus = null;
+  let taskModalRequestSeq = 0;
+  function syncDialogAccessibility() {
+    const task = document.getElementById('task-modal');
+    const prompt = document.getElementById('prompt-modal');
+    const promptShown = !prompt.classList.contains('hidden');
+    const taskShown = !task.classList.contains('hidden');
+    task.setAttribute('aria-hidden',String(promptShown || !taskShown));
+    const app = document.getElementById('app');
+    if (promptShown || taskShown) app.setAttribute('aria-hidden','true');
+    else app.removeAttribute('aria-hidden');
+  }
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Tab') return;
+    const quick = document.getElementById('quick-switch-modal');
+    if (!quick.classList.contains('hidden')) return; // command palette has its own trap.
+    const prompt = document.getElementById('prompt-modal');
+    const task = document.getElementById('task-modal');
+    const active = !prompt.classList.contains('hidden') ? prompt
+      : !task.classList.contains('hidden') ? task : null;
+    if (!active) return;
+    const controls = dialogFocusables(active);
+    if (!controls.length) { event.preventDefault(); return; }
+    const index = controls.indexOf(document.activeElement);
+    if (index < 0 || (event.shiftKey && index === 0) || (!event.shiftKey && index === controls.length - 1)) {
+      event.preventDefault();
+      (event.shiftKey ? controls[controls.length - 1] : controls[0]).focus();
+    }
+  });
+
+  // ---------------------------------------------------------------
   // TASK MODAL
   // ---------------------------------------------------------------
+  // Keep the active detail tab while saving steps, not when switching tasks.
+  let taskDetailTab = 'details';
+  let taskDetailCurrentId = null;
+  let commentReplyTo = null;
   async function openTaskModal(taskId) {
     const modal = document.getElementById('task-modal');
+    const wasClosed = modal.classList.contains('hidden');
+    const requestSeq = ++taskModalRequestSeq;
+    if (taskDetailCurrentId !== Number(taskId)) {
+      commentReplyTo = null;
+      taskDetailTab = 'details';
+      taskDetailCurrentId = Number(taskId);
+    }
+    if (wasClosed) taskModalReturnFocus = document.activeElement;
     modal.classList.remove('hidden');
-    document.getElementById('task-modal-body').innerHTML = '<p>Loading…</p>';
+    if (wasClosed) document.getElementById('close-task-modal').focus();
+    syncDialogAccessibility();
+    document.getElementById('task-modal-body').innerHTML = '<p role="status">Loading task details…</p>';
+    const stillCurrent = () => requestSeq === taskModalRequestSeq &&
+      !modal.classList.contains('hidden') && taskDetailCurrentId === Number(taskId);
     try {
       const { task } = await api('task.php?id=' + taskId);
+      if (!stillCurrent()) return;
       const teamId=Number(task.team_id);
       if (!state.modalContexts[teamId]) {
         const [people, tags] = await Promise.all([api('users.php'), api('tags.php?team_id='+teamId)]);
+        if (!stillCurrent()) return;
         state.modalContexts[teamId] = {
           members: (people.users || []).filter(u => Number(u.team_id ?? teamId)===teamId && (u.is_active===undefined || !!Number(u.is_active))),
           tags: tags.tags || [],
         };
       }
+      if (!stillCurrent()) return;
+      const previousId = modal.contains(document.activeElement) ? document.activeElement.id : '';
       renderTaskModal(task, state.modalContexts[teamId]);
+      if (!document.getElementById('prompt-modal').classList.contains('hidden') || modal.contains(document.activeElement)) return;
+      (previousId && document.getElementById(previousId) || document.getElementById('tm-tab-'+taskDetailTab)
+        || document.getElementById('close-task-modal'))?.focus();
     } catch (err) {
-      document.getElementById('task-modal-body').innerHTML = `<div class="load-error-box">
+      if (!stillCurrent()) return;
+      document.getElementById('task-modal-body').innerHTML = `<div class="load-error-box" role="alert">
         <p>Couldn't load this task: ${esc(err.message)}</p>
         <button type="button" class="btn btn-ghost" id="task-modal-retry">Try again</button>
       </div>`;
@@ -4565,7 +5226,20 @@
       `<option value="${t.id}" ${task.tags.some(x => x.id === t.id) ? 'selected' : ''}>${esc(t.name)}</option>`
     ).join('');
 
+    const checklistTotal=(task.checklist||[]).length;
+    const checklistDone=(task.checklist||[]).filter(item=>!!Number(item.is_done)).length;
+    const checklistPct=checklistTotal ? Math.round(checklistDone/checklistTotal*100) : 0;
+    const detailTabs=[
+      ['details','Details'],['checklist',`Checklist <span class="task-tab-count">${checklistTotal}</span>`],
+      ['files','Files &amp; activity'],['comments',`Discussion <span class="task-tab-count">${(task.comments||[]).length}</span>`]
+    ];
     body.innerHTML = `
+      <header class="task-detail-heading"><span>PROJECT TASK · #${Number(task.id)}</span><strong>${esc(task.title)}</strong></header>
+      <div class="task-detail-tabbar" role="tablist" aria-label="Task information">
+        ${detailTabs.map(([key,label])=>`<button type="button" id="tm-tab-${key}" class="task-detail-tab" data-task-tab="${key}" role="tab" aria-controls="tm-panel-${key}" aria-selected="${taskDetailTab===key}">${label}</button>`).join('')}
+      </div>
+      <section class="task-detail-panel" id="tm-panel-details" data-task-panel="details" role="tabpanel" aria-labelledby="tm-tab-details" ${taskDetailTab!=='details'?'hidden':''}>
+      <label class="task-detail-field-label" for="tm-title">Task title</label>
       <input id="tm-title" value="${esc(task.title)}" style="font-size:19px;font-weight:700;border:none;width:100%;margin-bottom:10px;" />
       <textarea id="tm-desc" placeholder="Add a description…">${esc(task.description || '')}</textarea>
 
@@ -4596,11 +5270,26 @@
       <button class="btn btn-ghost" id="tm-star" type="button" aria-pressed="${task.is_favorite ? 'true' : 'false'}">${task.is_favorite ? '★ Starred' : '☆ Star task'}</button>
       <button class="btn btn-ghost" id="tm-watch" type="button" aria-pressed="${!!task.is_watching}">${task.is_watching?'Watching task':'Watch task'} · ${Number(task.watcher_count||0)}</button>
       <button class="btn btn-ghost" id="tm-duplicate" type="button">Duplicate task</button>
+      ${state.lists.filter(l=>Number(l.id)!==Number(task.list_id)).length?'<button class="btn btn-ghost" id="tm-copy-project" type="button">Copy to project…</button>':''}
       ${canAssignOthers ? '<button type="button" class="btn btn-ghost" id="tm-save-template">Save as template</button>' : ''}
       ${Number(task.recurrence_generated_from) ? '<p class="dependency-help">Created automatically from recurring task #'+Number(task.recurrence_generated_from)+'.</p>' : ''}
       ${(iHave(['administrator', 'manager']) || Number(task.created_by) === Number(state.user.id)) ? '<button class="btn btn-ghost" id="tm-delete" style="color:var(--danger);">Delete task</button>' : ''}
 
       ${task.milestone?`<p class="milestone-inline">Milestone <button type="button" id="tm-milestone" class="milestone-inline-link">${esc(task.milestone.title)}</button>${task.milestone.due_date?' · Target '+fmtDate(task.milestone.due_date):''}</p>`:''}
+
+      <section class="task-review-inline" id="tm-review-section" aria-label="Task review">
+        <div class="task-review-inline-head"><h3>Review</h3><span class="task-review-status task-review-status-${esc(task.review?.status||'none')}">${task.review?taskReviewStatusLabel(task.review.status):'Not requested'}</span></div>
+        ${task.review?.request_note?`<p class="task-review-note">${esc(task.review.request_note)}</p>`:''}
+        ${task.review?.reviewer_note?`<p class="task-review-note task-review-feedback"><strong>Feedback:</strong> ${esc(task.review.reviewer_note)}</p>`:''}
+        <div class="task-review-inline-actions">
+          ${canEditTask && task.status!=='done' && task.review?.status!=='pending' ? '<button type="button" class="btn btn-primary" id="tm-review-request">Request review</button>':''}
+          ${task.review?.status==='pending' && (Number(task.review.submitted_by)===Number(state.user.id) || taskReviewManager())?'<button type="button" class="btn btn-ghost" id="tm-review-cancel">Cancel review</button>':''}
+          <button type="button" class="btn btn-ghost" id="tm-review-queue">Open review queue</button>
+        </div>
+        ${task.review_events?.length?`<details class="task-review-history"><summary>Decision history (${task.review_events.length} recent)</summary>
+           <ol>${task.review_events.map(item=>`<li><strong>${esc(item.actor_name)}</strong> ${esc(item.event_type.replaceAll('_',' '))} · ${esc(item.created_at)}
+            ${item.note?`<p>${esc(item.note)}</p>`:''}</li>`).join('')}</ol></details>`:''}
+      </section>
 
       <div class="section-title">Dependencies</div>
       <p class="dependency-help">${unfinished ? `${unfinished} unfinished prerequisite(s) must be completed before this task can be marked done.` : 'Complete prerequisite tasks first to unblock dependent work.'}</p>
@@ -4616,13 +5305,25 @@
         <div id="tm-blocker-results" class="dependency-search-results" aria-live="polite"></div>` : ''}
       ${(deps.blocks || []).length ? `<p class="dependency-help">This task blocks: ${(deps.blocks || []).map(d => `<button type="button" class="dependency-open dependency-chip" data-dependency-id="${Number(d.id)}">#${Number(d.id)} ${esc(d.title)}</button>`).join(' ')}</p>` : ''}
 
-      <div class="section-title">Checklist</div>
-      <div id="tm-checklist">${task.checklist.map(item => checklistItemHtml(item, canEditTask)).join('') || '<p style="color:var(--text-faint);font-size:13px;">No checklist items yet.</p>'}</div>
-      ${canEditTask ? `<form class="add-inline-form" id="tm-add-checklist">
-        <input placeholder="Add checklist item…" id="tm-checklist-input">
-        <button class="btn btn-ghost" type="submit">Add</button>
-      </form>` : ''}
-
+      </section>
+      <section class="task-detail-panel" id="tm-panel-checklist" data-task-panel="checklist" role="tabpanel" aria-labelledby="tm-tab-checklist" ${taskDetailTab!=='checklist'?'hidden':''}>
+      <div class="task-checklist-head"><div><h3>Checklist</h3><p>Break work into small steps. Use the arrows to reorder them.</p></div>
+      <span id="tm-checklist-count" class="task-checklist-count">${checklistDone} of ${checklistTotal} done</span></div>
+      <div id="tm-checklist-progress" class="task-checklist-progress" role="progressbar" aria-label="Checklist completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${checklistPct}"><span style="width:${checklistPct}%"></span></div>
+      <div id="tm-checklist" class="task-checklist-rows">${task.checklist.map((item,index)=>checklistItemHtml(item,canEditTask,index,checklistTotal)).join('') || '<p class="dependency-empty">No checklist items yet. Add your first step below.</p>'}</div>
+      ${canEditTask ? `<form class="add-inline-form task-checklist-add" id="tm-add-checklist">
+        <label for="tm-checklist-input" class="sr-only">New checklist step</label>
+        <input placeholder="Add a checklist step…" id="tm-checklist-input" maxlength="255">
+        <button class="btn btn-primary" type="submit">Add step</button>
+      </form>
+      <div class="task-checklist-toolbar"><button type="button" id="tm-paste-open" class="btn btn-ghost">Paste multiple steps</button><span>Up to 30 steps at once, 200 per task</span></div>
+      <form id="tm-paste-form" class="task-checklist-paste hidden">
+        <label for="tm-paste-text">Paste one step per line</label>
+        <textarea id="tm-paste-text" maxlength="8000" rows="6" placeholder="Confirm requirements&#10;Prepare design&#10;Review and approve"></textarea>
+        <div><button type="submit" class="btn btn-primary">Add steps</button><button type="button" class="btn btn-ghost" id="tm-paste-cancel">Cancel</button></div>
+      </form>`:''}
+      </section>
+      <section class="task-detail-panel" id="tm-panel-files" data-task-panel="files" role="tabpanel" aria-labelledby="tm-tab-files" ${taskDetailTab!=='files'?'hidden':''}>
       <div class="section-title">Attachments</div>
       <p class="dependency-help">Files remain private to authorized team members. Downloads require sign-in.</p>
       <div id="tm-attachments" data-task-id="${Number(task.id)}" aria-live="polite">Loading attachments…</div>
@@ -4639,14 +5340,63 @@
       <div class="section-title">Time tracking</div>
       <p class="dependency-help">Manually log work spent on this task. Entries are attributed to your account. Managers can view team worklogs.</p>
       <div id="tm-time-panel" data-task-id="${Number(task.id)}" aria-live="polite">Loading time entries…</div>
-      <div class="section-title">Comments</div>
-      <div id="tm-comments">${task.comments.map(commentHtml).join('') || '<p style="color:var(--text-faint);font-size:13px;">No comments yet.</p>'}</div>
-      <form class="add-inline-form" id="tm-add-comment">
-        <input placeholder="Write a comment… use @Name to mention" id="tm-comment-input">
-        <button class="btn btn-ghost" type="submit">Post</button>
+      </section>
+      <section class="task-detail-panel" id="tm-panel-comments" data-task-panel="comments" role="tabpanel" aria-labelledby="tm-tab-comments" ${taskDetailTab!=='comments'?'hidden':''}>
+      <div class="task-discussion-head"><h3>Discussion <span class="task-comment-count">${Number(task.comments?.length||0)} recent</span></h3><p>Reply to a teammate or use the mention picker to notify someone by name.</p></div>
+      <div class="task-comment-history" id="tm-comment-history" ${task.comments_next_before_id?'':'hidden'}>
+        <button type="button" class="btn btn-ghost" id="tm-comment-older" data-before="${Number(task.comments_next_before_id||0)}">Load earlier comments</button>
+      </div>
+      <div id="tm-comments" class="task-discussion-list" aria-live="polite">${task.comments.map(commentHtml).join('') || '<p class="dependency-empty">No comments yet. Start the conversation.</p>'}</div>
+      <form class="task-comment-composer" id="tm-add-comment">
+        <div class="task-reply-banner" id="tm-reply-banner" hidden><span>Replying to <strong id="tm-reply-name"></strong></span><button type="button" class="btn btn-ghost" id="tm-reply-cancel">Cancel reply</button></div>
+        <label for="tm-comment-input" class="task-comment-label">Write a comment</label>
+        <textarea placeholder="Share an update or ask a question…" id="tm-comment-input" maxlength="3000" rows="3" required></textarea>
+        <div class="task-comment-composer-actions"><label for="tm-mention-member">Mention teammate<select id="tm-mention-member"><option value="">Choose a teammate…</option>${context.members.filter(m=>Number(m.id)!==Number(state.user.id) && Number(m.is_active??1)===1).map(m=>`<option value="${Number(m.id)}">${esc(m.name)}</option>`).join('')}</select></label>
+          <span class="task-comment-hint">Ctrl/⌘ + Enter to post</span><button class="btn btn-primary" type="submit">Post comment</button></div>
       </form>
+      </section>
     `;
 
+    body.querySelectorAll('[data-task-tab]').forEach(tab => tab.addEventListener('click', () => {
+      const key=tab.dataset.taskTab;
+      taskDetailTab=key;
+      body.querySelectorAll('[data-task-tab]').forEach(node=>{
+        node.setAttribute('aria-selected',String(node===tab));
+        node.tabIndex=node===tab?0:-1;
+      });
+      body.querySelectorAll('[data-task-panel]').forEach(panel=>panel.hidden=panel.dataset.taskPanel!==key);
+      // The content changes without a navigation event or extra server request.
+    }));
+    body.querySelectorAll('[data-task-tab]').forEach(tab=>tab.tabIndex=tab.dataset.taskTab===taskDetailTab?0:-1);
+    body.querySelector('.task-detail-tabbar')?.addEventListener('keydown',event=>{
+      const keys=['ArrowLeft','ArrowRight','Home','End'];if(!keys.includes(event.key))return;
+      event.preventDefault();
+      const tabs=[...body.querySelectorAll('[data-task-tab]')];
+      const index=tabs.indexOf(document.activeElement);
+      if(index<0)return;
+      const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:
+        (index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
+      tabs[next].focus();tabs[next].click();
+    });
+
+    body.querySelector('#tm-review-request')?.addEventListener('click',()=>{
+      promptModal('Request task review',`<label for="p-review-note">What should your reviewer know? <small>(optional)</small></label>
+        <textarea id="p-review-note" maxlength="1000" rows="3" placeholder="Summarize the changes for your reviewer" style="width:100%;min-height:95px;"></textarea>`,async()=>{
+          const note=document.getElementById('p-review-note').value.trim();
+          await api('task_reviews.php',{method:'POST',body:{team_id:Number(task.team_id),task_id:Number(task.id),action:'request',note}});
+          toast('Review requested');await openTaskModal(task.id);
+        });
+    });
+    body.querySelector('#tm-review-cancel')?.addEventListener('click',()=>{
+      promptModal('Cancel task review',`<p>Move the task back to In progress and cancel the pending review?</p>`,async()=>{
+        await api('task_reviews.php',{method:'POST',body:{team_id:Number(task.team_id),task_id:Number(task.id),
+          action:'cancel',version:Number(task.review.version),note:''}});
+        toast('Review cancelled');await openTaskModal(task.id);
+      });
+    });
+    body.querySelector('#tm-review-queue')?.addEventListener('click',()=>{
+      closeTaskModal();taskReviewScope=taskReviewManager()?'team':'mine';taskReviewStatus='pending';setView('task-reviews');
+    });
     document.getElementById('tm-save')?.addEventListener('click', () => saveTask(task.id));
     if (!canEditTask) ['tm-title','tm-desc','tm-status','tm-priority','tm-start','tm-due','tm-estimate','tm-repeat-rule','tm-tags','tm-assignees'].forEach(id => {
       const input=document.getElementById(id);if(input) input.disabled=true;
@@ -4691,6 +5441,18 @@
       }catch(error){toast(error.message,true);}finally{button.disabled=false;}
     });
     document.getElementById('tm-duplicate').addEventListener('click', () => duplicateTask(task.id));
+    document.getElementById('tm-copy-project')?.addEventListener('click',()=>{
+      const targets=state.lists.filter(l=>Number(l.id)!==Number(task.list_id));
+      if(!targets.length)return;
+      promptModal('Copy task to project', `<p class="dependency-help">Copy the title, details, checklist and team labels. The copy starts as To do, without assignees or dates.</p>
+        <label for="p-copy-list">Destination project</label><select id="p-copy-list" required>${targets.map(l=>`<option value="${Number(l.id)}">${esc(l.name)}</option>`).join('')}</select>`,async()=>{
+        const destination=Number(document.getElementById('p-copy-list').value);
+        if(!Number.isSafeInteger(destination)||!targets.some(l=>Number(l.id)===destination))throw new Error('Choose a valid project.');
+        const result=await api('duplicate.php',{method:'POST',body:{id:task.id,list_id:destination}});
+        toast('Task copied to selected project. Assignees and dates were reset.');
+        await openTaskModal(result.id);
+      });
+    });
     document.getElementById('tm-save-template')?.addEventListener('click', () => {
       const items = (task.checklist || []).map(x => x.content);
       promptModal('Save task as template', `<p class="template-hint">Save a reusable task with checklist items. Assignees and dates will not be saved.</p>
@@ -4753,7 +5515,148 @@
       });
     }
     document.getElementById('tm-add-checklist')?.addEventListener('submit', e => addChecklistItem(e, task.id));
-    document.getElementById('tm-add-comment').addEventListener('submit', e => addComment(e, task.id));
+    // Checklist power tools: bounded paste, inline rename/remove, stale-safe reordering.
+    document.getElementById('tm-paste-open')?.addEventListener('click',()=>{
+      document.getElementById('tm-paste-form').classList.remove('hidden');
+      document.getElementById('tm-paste-text').focus();
+    });
+    document.getElementById('tm-paste-cancel')?.addEventListener('click',()=>document.getElementById('tm-paste-form').classList.add('hidden'));
+    document.getElementById('tm-paste-form')?.addEventListener('submit',async event=>{
+      event.preventDefault();
+      const form=event.currentTarget, input=form.querySelector('#tm-paste-text');
+      const rows=input.value.trim().split(/\r?\n/).map(x=>x.trim());
+      if(rows.length<1||rows.length>30||rows.some(x=>!x||x.length>255||/[\x00-\x1F\x7F]/.test(x))){
+        toast('Paste 1–30 nonempty steps, up to 255 characters per line.',true);return;
+      }
+      const button=form.querySelector('[type=submit]');button.disabled=true;
+      try{
+        const result=await api('checklist.php',{method:'POST',body:{task_id:Number(task.id),action:'add_many',items:rows}});
+        toast(`${result.added_count} checklist steps added`);
+        await openTaskModal(task.id);
+      }catch(err){toast(err.message,true);button.disabled=false;}
+    });
+    body.querySelectorAll('[data-checklist-move]').forEach(button=>button.addEventListener('click',async()=>{
+      const id=Number(button.dataset.checklistMove),direction=Number(button.dataset.direction);
+      const oldIds=(task.checklist||[]).map(x=>Number(x.id));const index=oldIds.indexOf(id), next=index+direction;
+      if(index<0||next<0||next>=oldIds.length)return;
+      const order=[...oldIds];[order[index],order[next]]=[order[next],order[index]];
+      button.disabled=true;
+      try{
+        await api('checklist.php',{method:'PUT',body:{action:'reorder',task_id:Number(task.id),order,expected_order:oldIds}});
+        await openTaskModal(task.id);
+      }catch(err){toast(err.message,true);button.disabled=false;}
+    }));
+    body.querySelectorAll('[data-checklist-edit]').forEach(button=>button.addEventListener('click',()=>{
+      const id=Number(button.dataset.checklistEdit),item=task.checklist.find(x=>Number(x.id)===id);
+      if(!item)return;
+      const row=button.closest('.checklist-item');if(!row)return;
+      row.querySelector('.checklist-label').classList.add('hidden');
+      row.querySelector('.checklist-actions').classList.add('hidden');
+      const form=row.querySelector('.checklist-edit-form');form.classList.remove('hidden');
+      const input=form.querySelector('input');input.value=item.content;input.focus();input.select();
+    }));
+    body.querySelectorAll('.checklist-edit-form').forEach(form=>{
+      const cancel=()=>{
+        form.classList.add('hidden');form.closest('.checklist-item').querySelector('.checklist-label').classList.remove('hidden');
+        form.closest('.checklist-item').querySelector('.checklist-actions').classList.remove('hidden');
+      };
+      form.querySelector('[data-checklist-cancel]').addEventListener('click',cancel);
+      form.addEventListener('submit',async event=>{
+        event.preventDefault();const itemId=Number(form.dataset.checklistItem),content=form.querySelector('input').value.trim();
+        if(!content||content.length>255){toast('Enter 1–255 characters.',true);return;}
+        const button=form.querySelector('[type=submit]');button.disabled=true;
+        try{
+          await api('checklist.php',{method:'PUT',body:{action:'edit_text',id:itemId,content}});
+          toast('Checklist step updated');await openTaskModal(task.id);
+        }catch(err){toast(err.message,true);button.disabled=false;}
+      });
+    });
+    body.querySelectorAll('[data-checklist-remove]').forEach(button=>button.addEventListener('click',async()=>{
+      if(!confirm('Remove this checklist step?'))return;
+      button.disabled=true;
+      try{
+        await api('checklist.php',{method:'DELETE',body:{id:Number(button.dataset.checklistRemove)}});
+        toast('Checklist step removed');await openTaskModal(task.id);
+      }catch(err){toast(err.message,true);button.disabled=false;}
+    }));
+    const composer=document.getElementById('tm-add-comment');
+    composer.addEventListener('submit', e => addComment(e, task.id));
+    composer.querySelector('#tm-comment-input').addEventListener('keydown',e=>{
+      if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();composer.requestSubmit();}
+    });
+    composer.querySelector('#tm-mention-member').addEventListener('change',e=>{
+      const member=context.members.find(m=>Number(m.id)===Number(e.target.value));
+      if(!member){return;}
+      const input=composer.querySelector('#tm-comment-input');
+      const duplicateNames=context.members.filter(m=>Number(m.is_active??1)===1 && m.name===member.name);
+      const token=duplicateNames.length>1?`@[${member.name}](${Number(member.id)})`:`@[${member.name}]`;
+      const before=input.value.slice(0,input.selectionStart),after=input.value.slice(input.selectionEnd);
+      const prefix=before && !/\s$/.test(before)?' ':'';
+      const suffix=after && !/^\s/.test(after)?' ':'';
+      input.value=before+prefix+token+suffix+after;
+      const caret=(before+prefix+token+suffix).length;
+      input.focus();input.setSelectionRange(caret,caret);e.target.value='';
+    });
+    const clearReply=()=>{commentReplyTo=null;const banner=composer.querySelector('#tm-reply-banner');banner.hidden=true;};
+    composer.querySelector('#tm-reply-cancel').addEventListener('click',clearReply);
+    const discussion=body.querySelector('#tm-comments');
+    discussion.addEventListener('click',async e=>{
+      const button=e.target.closest('button');if(!button)return;
+      const row=button.closest('[data-comment-id]');if(!row)return;
+      const id=Number(row.dataset.commentId),comment=task.comments.find(c=>Number(c.id)===id);
+      if(button.hasAttribute('data-comment-reply')){
+        commentReplyTo={id,name:row.dataset.author||'teammate'};
+        const banner=composer.querySelector('#tm-reply-banner');banner.hidden=false;
+        composer.querySelector('#tm-reply-name').textContent=commentReplyTo.name;
+        composer.querySelector('#tm-comment-input').focus();return;
+      }
+      if(button.hasAttribute('data-comment-edit')){
+        row.querySelector('.comment-text').hidden=true;
+        row.querySelector('.comment-actions').hidden=true;
+        const form=row.querySelector('.comment-edit-form');form.hidden=false;
+        form.querySelector('textarea').focus();return;
+      }
+      if(button.hasAttribute('data-comment-cancel')){
+        row.querySelector('.comment-edit-form').hidden=true;
+        row.querySelector('.comment-text').hidden=false;
+        row.querySelector('.comment-actions').hidden=false;return;
+      }
+      if(button.hasAttribute('data-comment')){
+        if(!window.confirm('Delete this comment? Replies remain on the task.'))return;
+        button.disabled=true;
+        try{await api('comments.php',{method:'DELETE',body:{id}});toast('Comment removed');await openTaskModal(task.id);}
+        catch(error){toast(error.message,true);button.disabled=false;}return;
+      }
+    });
+    discussion.addEventListener('submit',async e=>{
+      const form=e.target.closest('.comment-edit-form');if(!form)return;
+      e.preventDefault();const id=Number(form.closest('[data-comment-id]').dataset.commentId);
+      const comment=task.comments.find(c=>Number(c.id)===id);
+      if(!comment)return;
+      const content=form.querySelector('textarea').value.trim();
+      if(!content||new TextEncoder().encode(content).length>3000){toast('Comment must be 1–3,000 UTF-8 bytes.',true);return;}
+      const submit=form.querySelector('[type=submit]');submit.disabled=true;
+      try{await api('comments.php',{method:'PUT',body:{id,content,version:Number(comment.edit_version||1)}});
+        toast('Comment updated');await openTaskModal(task.id);}
+      catch(error){toast(error.message,true);submit.disabled=false;}
+    });
+    const older=body.querySelector('#tm-comment-older');
+    older?.addEventListener('click',async()=>{
+      const before=Number(older.dataset.before);if(!before)return;
+      older.disabled=true;
+      try{
+        const page=await api(`comments.php?task_id=${Number(task.id)}&before_id=${before}`);
+        if(Number(taskDetailCurrentId)!==Number(task.id)||!discussion.isConnected)return;
+        if(page.comments?.length){
+          task.comments.unshift(...page.comments);
+          discussion.insertAdjacentHTML('afterbegin',page.comments.map(commentHtml).join(''));
+        }
+        const next=Number(page.next_before_id||0);older.dataset.before=String(next);
+        body.querySelector('#tm-comment-history').hidden=!next;
+        const count=body.querySelector('.task-comment-count');if(count)count.textContent=`${task.comments.length} loaded`;
+      }catch(error){toast(error.message,true);}finally{older.disabled=false;}
+    });
+
     document.getElementById('tm-new-tag')?.addEventListener('click', () => {
       promptModal('New tag', `<input id="p-tag-name" placeholder="Tag name" style="width:100%;padding:8px;border:1.5px solid var(--border);border-radius:8px;margin-bottom:8px;">
         <input id="p-tag-color" type="color" value="#7B68EE">`, async () => {
@@ -4771,40 +5674,53 @@
       cb.addEventListener('change', async () => {
         try {
           await api('checklist.php', { method: 'PUT', body: { id: Number(cb.dataset.item), is_done: cb.checked ? 1 : 0 } });
+          const item=task.checklist.find(x=>Number(x.id)===Number(cb.dataset.item));
+          if(item)item.is_done=cb.checked?1:0;
+          cb.closest('.checklist-item').classList.toggle('is-done',cb.checked);
+          const done=task.checklist.filter(x=>!!Number(x.is_done)).length;
+          document.getElementById('tm-checklist-count').textContent=`${done} of ${task.checklist.length} done`;
+          const progress=document.getElementById('tm-checklist-progress'),percent=task.checklist.length?Math.round(done/task.checklist.length*100):0;
+          progress.setAttribute('aria-valuenow',String(percent));progress.querySelector('span').style.width=percent+'%';
         } catch (err) {
           toast(err.message, true);
           cb.checked = !cb.checked; // revert the visual toggle since the save failed
         }
       });
     });
-    body.querySelectorAll('.comment-delete[data-comment]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        try {
-          await api('comments.php', { method: 'DELETE', body: { id: Number(btn.dataset.comment) } });
-          openTaskModal(task.id);
-        } catch (err) { toast(err.message, true); }
-      });
-    });
   }
 
-  function checklistItemHtml(item, canEdit = true) {
-    return `<div class="checklist-item ${item.is_done ? 'is-done' : ''}">
-      <input type="checkbox" class="checklist-toggle" data-item="${item.id}" ${item.is_done ? 'checked' : ''} ${canEdit ? '' : 'disabled'}>
-      <span>${esc(item.content)}</span>
+  function checklistItemHtml(item, canEdit = true, index = 0, count = 0) {
+    const id=Number(item.id);
+    return `<div class="checklist-item ${item.is_done ? 'is-done' : ''}" data-checklist-row="${id}">
+      <input type="checkbox" class="checklist-toggle" data-item="${id}" aria-label="Complete ${esc(item.content)}" ${item.is_done?'checked':''} ${canEdit?'':'disabled'}>
+      <span class="checklist-label">${esc(item.content)}</span>
+      ${canEdit?`<div class="checklist-actions" role="group" aria-label="Actions for ${esc(item.content)}">
+        <button type="button" data-checklist-move="${id}" data-direction="-1" aria-label="Move ${esc(item.content)} up" title="Move up" ${index===0?'disabled':''}>↑</button>
+        <button type="button" data-checklist-move="${id}" data-direction="1" aria-label="Move ${esc(item.content)} down" title="Move down" ${index===count-1?'disabled':''}>↓</button>
+        <button type="button" data-checklist-edit="${id}" aria-label="Rename ${esc(item.content)}">Edit</button>
+        <button type="button" class="checklist-remove" data-checklist-remove="${id}" aria-label="Remove ${esc(item.content)}">×</button>
+      </div><form class="checklist-edit-form hidden" data-checklist-item="${id}">
+        <input maxlength="255" required aria-label="Edit checklist step" value="${esc(item.content)}">
+        <button type="submit" class="btn btn-primary">Save</button><button type="button" class="btn btn-ghost" data-checklist-cancel>Cancel</button>
+      </form>`:''}
     </div>`;
   }
   function commentHtml(c) {
-    const canDelete = c.user_id === state.user.id || iHave(['administrator', 'manager']);
-    return `<div class="comment">
+    const id=Number(c.id),mine=Number(c.user_id)===Number(state.user.id);
+    const canDelete=mine||iHave(['administrator','manager']);
+    const reply=Number(c.parent_comment_id)>0;
+    return `<article class="comment ${reply?'task-comment-reply':''}" data-comment-id="${id}" data-author="${esc(c.name)}">
       <span class="avatar" style="background:${esc(c.avatar_color)}">${esc(initials(c.name))}</span>
       <div class="comment-body">
         <div class="comment-header">
-          <span>${esc(c.name)}${c.roles && c.roles.length ? ` <span style="color:var(--text-faint);font-weight:400;">(${esc(rolesLabel(c.roles))})</span>` : ''} <span class="comment-time">${esc(c.created_at)}</span></span>
-          ${canDelete ? `<button class="comment-delete" data-comment="${c.id}">Delete</button>` : ''}
+          <span><strong>${esc(c.name)}</strong>${c.roles?.length?` <span class="comment-role">(${esc(rolesLabel(c.roles))})</span>`:''} <span class="comment-time">${esc(c.created_at)}</span>${c.edited_at?' <span class="comment-edited">Edited</span>':''}</span>
         </div>
+        ${reply?`<div class="comment-reply-context">Reply to ${esc(c.parent_author_name||'previous comment')}</div>`:''}
         <div class="comment-text">${esc(c.content)}</div>
+        <div class="comment-actions"><button type="button" data-comment-reply="${id}">Reply</button>${mine?`<button type="button" data-comment-edit="${id}">Edit</button>`:''}${canDelete?`<button type="button" class="comment-delete" data-comment="${id}">Delete</button>`:''}</div>
+        ${mine?`<form class="comment-edit-form" data-comment-edit-form="${id}" hidden><label for="comment-edit-${id}">Edit your comment</label><textarea id="comment-edit-${id}" rows="3" maxlength="3000" required>${esc(c.content)}</textarea><div><button class="btn btn-primary" type="submit">Save</button><button class="btn btn-ghost" type="button" data-comment-cancel>Cancel</button></div></form>`:''}
       </div>
-    </div>`;
+    </article>`;
   }
 
   async function saveTask(taskId) {
@@ -4862,13 +5778,18 @@
     const input = document.getElementById('tm-comment-input');
     if (!input.value.trim()) return;
     try {
-      await api('comments.php', { method: 'POST', body: { task_id: taskId, content: input.value.trim() } });
-      input.value = '';
+      await api('comments.php', { method: 'POST', body: { task_id: taskId, content: input.value.trim(), parent_id: commentReplyTo?.id||null } });
+      input.value = '';commentReplyTo=null;
       openTaskModal(taskId);
     } catch (err) { toast(err.message, true); }
   }
   function closeTaskModal() {
+    ++taskModalRequestSeq; // Invalidate any older task or people/tag response.
+    taskDetailCurrentId=null; taskDetailTab='details';commentReplyTo=null;
     document.getElementById('task-modal').classList.add('hidden');
+    syncDialogAccessibility();
+    if (document.getElementById('prompt-modal').classList.contains('hidden')) returnDialogFocus(taskModalReturnFocus);
+    taskModalReturnFocus = null;
     // Refresh a report after editing its task without resetting date/scope filters.
     if (state.currentView === 'time-reports' && document.getElementById('time-report-filters')) {
       timeReportCursor = null;loadTimeReport();
@@ -4886,31 +5807,62 @@
     else if (state.currentView === 'calendar') renderCalendar();
     else if (state.currentView === 'workload') renderWorkload();
     else if (state.currentView === 'milestones') renderMilestones();
+    else if (state.currentView === 'task-reviews') renderTaskReviews();
   }
 
   // ---------------------------------------------------------------
   // Generic prompt modal
   // ---------------------------------------------------------------
+  let promptModalGeneration = 0;
   function promptModal(title, bodyHtml, onConfirm) {
     const modal = document.getElementById('prompt-modal');
+    const generation = ++promptModalGeneration;
+    const previousFocus = document.activeElement;
     document.getElementById('prompt-title').textContent = title;
     document.getElementById('prompt-body').innerHTML = bodyHtml;
+    const errorText = document.getElementById('prompt-error');
+    errorText.textContent = '';errorText.hidden = true;
     modal.classList.remove('hidden');
     const confirmBtn = document.getElementById('prompt-confirm');
     const cancelBtn = document.getElementById('prompt-cancel');
-    const cleanup = () => { modal.classList.add('hidden'); confirmBtn.onclick = null; cancelBtn.onclick = null; };
+    modal.setAttribute('aria-busy','false');
+    confirmBtn.disabled = false; cancelBtn.disabled = false;confirmBtn.textContent='Confirm';
+    const firstInput = [...modal.querySelectorAll('input:not([disabled]),textarea:not([disabled]),select:not([disabled])')]
+      .find(el => el.getClientRects().length > 0);
+    (firstInput || confirmBtn).focus();
+    syncDialogAccessibility();
+    const cleanup = () => {
+      if (generation !== promptModalGeneration) return;
+      modal.classList.add('hidden');
+      confirmBtn.onclick = null;cancelBtn.onclick = null;
+      errorText.textContent = '';errorText.hidden = true;
+      syncDialogAccessibility();
+      returnDialogFocus(previousFocus);
+    };
     confirmBtn.onclick = async () => {
+      if (generation !== promptModalGeneration || confirmBtn.disabled) return;
       const originalLabel = confirmBtn.textContent;
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = 'Working…';
+      confirmBtn.disabled = true;cancelBtn.disabled = true;
+      confirmBtn.textContent = 'Saving…';modal.setAttribute('aria-busy','true');
+      // Disabling the clicked button must not drop keyboard focus behind the dialog.
+      (firstInput || modal).focus();
+      errorText.textContent = '';errorText.hidden = true;
       try {
         await onConfirm();
         cleanup();
       } catch (err) {
-        toast(err.message || 'Something went wrong.', true);
+        if (generation !== promptModalGeneration) return;
+        errorText.textContent = err.message || 'Something went wrong.';
+        errorText.hidden = false;
+        toast(errorText.textContent, true);
       } finally {
-        confirmBtn.disabled = false;
-        confirmBtn.textContent = originalLabel;
+        if (generation === promptModalGeneration) {
+          modal.setAttribute('aria-busy','false');
+          confirmBtn.disabled = false;cancelBtn.disabled = false;
+          confirmBtn.textContent = originalLabel;
+          if (!modal.contains(document.activeElement) && !modal.classList.contains('hidden'))
+            (firstInput || confirmBtn).focus();
+        }
       }
     };
     cancelBtn.onclick = cleanup;

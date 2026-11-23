@@ -1,41 +1,34 @@
 <?php
-/** Duplicates the work definition, not people, comments, dates or completion history. */
+/** Duplicate a work definition within a team, optionally to another project. */
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/task_copy.php';
 start_secure_session();
-$me = current_user_record();
-if (effective_method() !== 'POST') json_error('Method not allowed.', 405);
+$me=current_user_record();
+if (effective_method()!=='POST') json_error('Method not allowed.',405);
 require_csrf();
-$body = get_json_body();
-$id = filter_var($body['id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
-if (!$id) json_error('Invalid task.', 400);
-$pdo = get_pdo();
-$stmt = $pdo->prepare('SELECT t.*,l.team_id FROM tasks t JOIN lists l ON l.id=t.list_id WHERE t.id=?');
+$data=get_json_body();
+$id=filter_var($data['id']??null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
+if (!$id) json_error('Invalid task.',400);
+$pdo=get_pdo();
+$stmt=$pdo->prepare('SELECT t.*,l.team_id FROM tasks t JOIN lists l ON l.id=t.list_id WHERE t.id=?');
 $stmt->execute([$id]);
-$source = $stmt->fetch();
-if (!$source) json_error('Task not found.', 404);
-require_team_access((int) $source['team_id']);
-// An ordinary member may duplicate visible team tasks but cannot copy assignees.
+$source=$stmt->fetch(PDO::FETCH_ASSOC);
+if (!$source) json_error('Task not found.',404);
+$teamId=(int)$source['team_id'];
+require_team_access($teamId);
+try { $targetList=taskflow_copy_target($data['list_id']??null,(int)$source['list_id']); }
+catch (InvalidArgumentException $e) { json_error($e->getMessage(),400); }
 try {
     $pdo->beginTransaction();
-    $position = $pdo->prepare('SELECT COALESCE(MAX(position),-1)+1 FROM tasks WHERE list_id=?');
-    $position->execute([$source['list_id']]);
-    $title = clean_str($source['title'], 248) . ' (copy)';
-    $pdo->prepare("INSERT INTO tasks (list_id,parent_task_id,title,description,status,priority,estimate_minutes,start_date,due_date,is_recurring_weekly,position,created_by)
-                   VALUES (?,NULL,?,?,'to_do',?,?,NULL,NULL,0,?,?)")
-        ->execute([(int) $source['list_id'], $title, $source['description'], $source['priority'], $source['estimate_minutes'], (int) $position->fetchColumn(), (int) $me['id']]);
-    $newId = (int) $pdo->lastInsertId();
-    $pdo->prepare('INSERT INTO checklist_items (task_id,content,is_done,position)
-                   SELECT ?,content,0,position FROM checklist_items WHERE task_id=? ORDER BY position,id LIMIT 200')
-        ->execute([$newId, $id]);
-    $pdo->prepare('INSERT INTO task_tags (task_id,tag_id)
-                   SELECT ?,tt.tag_id FROM task_tags tt JOIN tags tg ON tg.id=tt.tag_id
-                   WHERE tt.task_id=? AND tg.team_id=?')
-        ->execute([$newId, $id, (int) $source['team_id']]);
+    $result=taskflow_copy_into_list($pdo,(int)$id,$targetList,(int)$me['id'],$teamId);
+    log_activity($teamId,$result['id'],(int)$me['id'],'task_duplicated','Copied task to project #'.$targetList);
     $pdo->commit();
-} catch (Throwable $exception) {
+} catch (DomainException $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
-    error_log('Task duplication failed: ' . $exception->getMessage());
-    json_error('Could not duplicate this task.', 500);
+    json_error($e->getMessage(),403);
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    error_log('Task duplication failed: '.get_class($e));
+    json_error('Could not duplicate this task.',500);
 }
-log_activity((int) $source['team_id'], $newId, (int) $me['id'], 'task_duplicated', $title);
-json_response(['ok' => true, 'id' => $newId, 'title' => $title], 201);
+json_response(['ok'=>true,...$result],201);

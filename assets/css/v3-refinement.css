@@ -1,0 +1,131 @@
+/* TaskFlow v3: neutral, task-first workspace. One design system, no external assets.
+   Loaded last so legacy components inherit appearance tokens in all 10 themes. */
+:root {--v3-focus-outline:color-mix(in srgb,var(--accent) 40%,transparent);--v3-row-hover:var(--hover-surface);}
+html[data-theme="dark"][data-palette="charcoal"] {
+  color-scheme:dark;
+  --bg:#202124;--sidebar-bg:#242529;--card-bg:#2b2d31;--surface:#303238;
+  --surface-secondary:#36383e;--surface-raised:#34363b;--line:#484b52;--border:#484b52;
+  --text:#f6f6f7;--text-dim:#d6d7dc;--text-faint:#bdc0c8;
+  --text-muted:#d6d7dc;--text-secondary:#d6d7dc;--muted:#d6d7dc;
+  --accent:#c0aeff;--accent-dark:#e0d7ff;--accent-light:#443d59;
+  --control-bg:#25262b;--control-border:#656975;--control-focus:#d5c7ff;
+  --hover-surface:#393b45;--hint-bg:#3f3955;--hint-text:#eee8ff;
+  --danger:#ffabb8;--warning:#ffcf91;--success:#8be5b5;--info:#9bdcfb;
+  --tf-action:#7762b8;--tf-action-hover:#8a75cc;--tf-action-text:#fff;
+  --tf-brand-start:#35323e;--tf-brand-end:#26272c;
+  --tf-hero-start:#2c2d34;--tf-hero-end:#453d56;--tf-hero-em:#e5dcff;
+  --shadow:0 2px 16px rgba(0,0,0,.18);--shadow-lg:0 30px 90px rgba(0,0,0,.55);
+}
+html[data-theme="dark"][data-palette="black"] {
+  color-scheme:dark;
+  --bg:#000000;--sidebar-bg:#050505;--card-bg:#0d0d0e;--surface:#131315;
+  --surface-secondary:#17171b;--surface-raised:#1a1a1e;--line:#35353b;--border:#35353b;
+  --text:#fafafb;--text-dim:#dadadd;--text-faint:#bdbdc3;
+  --text-muted:#dadadd;--text-secondary:#dadadd;--muted:#dadadd;
+  --accent:#a9c9ff;--accent-dark:#c9deff;--accent-light:#202c42;
+  --control-bg:#101013;--control-border:#54545d;--control-focus:#b5d2ff;
+  --hover-surface:#202027;--hint-bg:#1b2a41;--hint-text:#d2e6ff;
+  --danger:#ffabb6;--warning:#ffce8a;--success:#9beaC8;--info:#9cdbff;
+  --tf-action:#416cbe;--tf-action-hover:#567fd5;--tf-action-text:#fff;
+  --tf-brand-start:#19191d;--tf-brand-end:#070708;
+  --tf-hero-start:#101115;--tf-hero-end:#252733;--tf-hero-em:#cbdcff;
+  --shadow:0 1px 6px rgba(0,0,0,.5);--shadow-lg:0 26px 85px rgba(0,0,0,.8);
+}
+/* Dark palette consistency: no white components or vanishing explanatory copy. */
+:is(html[data-palette="charcoal"],html[data-palette="black"]) {
+  --v2-halo:0 2px 12px rgba(0,0,0,.18);
+}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(body,.app,.main,.view-container,.auth-screen,.auth-login-pane) {
+  background:var(--bg);color:var(--text);
+}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(.sidebar,.sidebar-bottom,.topbar,.view-toolbar,.v2-view-tabs,.v2-tool-drawer,
+   .work-results-section,.v2-aside-card,.risk-card,.decision-card,.announcement-card,.portfolio-card,.milestone-card,.overview-panel,
+   .overview-progress,.overview-metrics>div,.decision-outcome,.task-table,.board-card,.board-lane h3,.modal,.command-dialog,.auth-card,
+   .balance-card,.leave-history-card,.timesheet-panel,.card,.settings-box,.workspace-card) {
+  background:var(--card-bg);color:var(--text);border-color:var(--border);
+}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(.board-lane,.task-table thead th,.search-form,.decision-filters,.risk-filters,
+   .announcement-receipts,.risk-mitigation,.modal-body,.v3-theme-actions) {background:var(--surface);color:var(--text);border-color:var(--border);}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(.v2-task-stream,.v2-focus-card,.v2-tip-card,.v2-aside-card,.project-overview-shell) :is(p,small,.v2-aside-eyebrow) {color:var(--text-dim);}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(.sidebar-top .brand,.topbar h1,.work-section-head h3,.v2-view-intro h2,.overview-header h2,
+  .decision-card h4,.risk-card h4,.announcement-card h3,.auth-heading,.auth-form label,.auth-footnote,.auth-subtitle) {color:var(--text)!important;}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(.work-hero,.auth-story) {background:linear-gradient(122deg,var(--tf-hero-start),var(--tf-hero-end))!important;border-color:var(--border);}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(.btn-primary,.header-create-btn,.auth-form .btn-primary) {background:var(--tf-action);border-color:var(--tf-action);color:var(--tf-action-text);}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(.btn-primary,.header-create-btn,.auth-form .btn-primary):hover {background:var(--tf-action-hover);border-color:var(--tf-action-hover);}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(input:not([type=checkbox]):not([type=radio]),select,textarea) {background:var(--control-bg);color:var(--text);border-color:var(--control-border);}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(.v2-pinned-nav button.active,.v3-project-link.is-selected,.v2-view-tabs button.active) {background:var(--accent-light);color:var(--accent-dark);}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(.v2-pinned-nav button:hover,.v3-project-link:hover,.sidebar-nav .nav-item:hover) {background:var(--hover-surface);color:var(--text);}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) .auth-appearance button[aria-pressed="true"] {background:var(--accent-light);color:var(--accent-dark);}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) .auth-split .auth-card {background:var(--card-bg);border:1px solid var(--border);}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) :is(.auth-preview,.auth-preview-task,.auth-preview-header,.auth-preview-heading,.auth-preview-metrics,.auth-preview-metrics div) {color:#1e2a3c;}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) .auth-preview {background:#f7f9fc;}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) .auth-form input:not([type=checkbox]) {background:var(--control-bg);color:var(--text);border-color:var(--border);}
+:is(html[data-palette="charcoal"],html[data-palette="black"]) .auth-footnote a {color:var(--accent-dark);}
+/* Black stays truly black, including the main canvas. Cards use near-black only to separate rows. */
+html[data-palette="black"] :is(.sidebar,.sidebar-bottom,.topbar,.view-toolbar,.v2-view-tabs){background:#060606;}
+html[data-palette="black"] .view-container{background:#000;}
+
+/* TaskFlow v3 layout: keep the projects you actually use within reach. */
+.sidebar{width:260px;}
+.sidebar-top{padding:11px 13px 0;}
+.sidebar-top .brand{font-size:19px;margin-bottom:13px;}
+.workspace-card{padding:10px 12px;margin-bottom:11px;}
+.sidebar-finder{margin:0 13px 10px;min-height:34px;}
+.v2-pinned-heading{padding:8px 22px 6px;}
+.v2-pinned-nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 6px;padding:0 10px 14px;}
+.v2-pinned-nav>button:nth-child(1),.v2-pinned-nav>button:nth-child(2),.v2-pinned-nav>button:nth-child(5){grid-column:1/-1;}
+.v2-pinned-nav>button{min-height:36px;padding:8px 11px;gap:10px;font-size:12px;border-radius:8px;}
+.v2-pinned-nav>button:nth-child(3),.v2-pinned-nav>button:nth-child(4){font-size:11px;gap:7px;min-width:0;justify-content:center;}
+.v2-pinned-nav>button:nth-child(3) svg,.v2-pinned-nav>button:nth-child(4) svg{width:15px;height:15px;}
+.v3-project-rail{margin:0 12px 12px;min-width:0;}
+.v3-rail-heading{display:flex;align-items:center;justify-content:space-between;color:var(--text-faint);font-weight:800;font-size:10px;letter-spacing:.105em;padding:8px 9px 9px;}
+.v3-rail-count{font-size:10px;letter-spacing:0;color:var(--text-dim);border:1px solid var(--border);background:var(--surface);border-radius:999px;min-width:22px;height:21px;display:grid;place-items:center;padding:0 5px;}
+.v3-project-items{display:flex;flex-direction:column;gap:2px;max-height:min(24vh,250px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.v3-project-link{display:flex;width:100%;align-items:center;text-align:left;gap:10px;border:1px solid transparent;background:transparent;color:var(--text-dim);border-radius:8px;min-height:37px;padding:6px 10px;font-size:12px;font-weight:570;}
+.v3-project-link:hover{background:var(--surface);color:var(--text);}
+.v3-project-link.is-selected{border-color:color-mix(in srgb,var(--accent) 16%,var(--border));background:var(--accent-light);color:var(--accent-dark);font-weight:730;}
+.v3-project-icon{width:22px;height:22px;flex:none;display:grid;place-items:center;background:color-mix(in srgb,var(--accent) 13%,var(--card-bg));border:1px solid color-mix(in srgb,var(--accent) 23%,var(--border));border-radius:6px;color:var(--accent-dark);font-size:10px;font-weight:800;}
+.v3-project-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.v3-project-empty{padding:10px;font-size:11px;color:var(--text-faint);}
+.v3-project-more{border:0;background:transparent;padding:9px 10px;font-size:11px;text-align:left;font-weight:680;color:var(--accent-dark);}
+.v3-project-more:hover{text-decoration:underline;}
+.v2-tools-toggle{margin-top:2px;}
+.sidebar-bottom{padding-top:11px;padding-bottom:11px;gap:7px;}
+/* Smaller action hierarchy and more breathing room for actual rows. */
+.topbar{min-height:66px;padding:10px clamp(18px,2.5vw,34px);}
+.topbar-overline{font-size:9px;letter-spacing:.07em;}
+.topbar h1{font-size:20px;}
+.topbar-search{min-width:185px;min-height:35px;}
+.quick-switch-btn{min-width:38px;padding:8px;min-height:36px;}
+.quick-switch-btn span,.quick-switch-btn kbd{display:none;}
+.theme-switch{width:36px;height:36px;min-height:36px;}
+.header-create-btn{min-height:36px;}
+.view-container{padding-top:21px;}
+.v2-view-tabs{height:40px;gap:16px;}
+.v2-view-tabs button{font-size:11.5px;}
+.v2-home-grid{gap:15px;grid-template-columns:minmax(0,1fr) minmax(210px,260px);}
+.v2-task-stream.work-results-section{padding:18px;}
+.v2-tip-card{display:none;}
+.v2-focus-card{padding:16px;}
+.v2-task-stream .search-result{min-height:61px;padding:10px 8px;}
+.v2-task-stream .search-result:hover{background:var(--hover-surface);}
+.v2-task-stream .focus-shortcuts button{font-weight:700;}
+:where(.portfolio-card,.risk-card,.decision-card,.announcement-card,.milestone-card,.overview-panel){border-radius:9px;box-shadow:none;}
+:where(.portfolio-card,.risk-card,.decision-card,.announcement-card,.milestone-card,.overview-panel):hover{border-color:color-mix(in srgb,var(--accent) 18%,var(--border));}
+/* Ten theme swatches stay discoverable but do not compete with sign-in. */
+.auth-theme-disclosure{margin:0 0 16px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);}
+.auth-theme-disclosure summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;font-weight:720;font-size:12px;list-style:none;}
+.auth-theme-disclosure summary::-webkit-details-marker{display:none;}
+.auth-theme-disclosure summary small{font-size:10px;color:var(--text-dim);font-weight:550;}
+.auth-theme-disclosure[open] summary{border-bottom:1px solid var(--border);}
+.auth-theme-disclosure .auth-appearance{border:0;box-shadow:none;background:transparent;margin:0;padding:10px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;}
+.auth-theme-disclosure .auth-appearance button{font-size:10px;padding:8px 2px;min-width:0;border-radius:7px;}
+.auth-theme-disclosure .auth-appearance button[aria-pressed="true"]{outline:2px solid var(--accent);outline-offset:-2px;}
+@media(max-width:1100px){.v2-home-grid{grid-template-columns:1fr}.v2-home-aside{display:none;}}
+@media(max-width:860px){.sidebar{width:270px;max-width:88vw}.v3-project-items{max-height:215px}.topbar-search{min-width:36px}}
+@media(max-width:610px){.v3-project-items{max-height:200px}.view-container{padding:13px 12px calc(94px + env(safe-area-inset-bottom));}.topbar-search,.quick-switch-btn,.theme-switch{width:34px;min-width:34px}.auth-theme-disclosure .auth-appearance{grid-template-columns:repeat(5,minmax(0,1fr));gap:3px}.auth-theme-disclosure .auth-appearance button{font-size:9px;padding:7px 1px}.v2-home-grid{display:block}.v2-task-stream.work-results-section{padding:14px}}
+@media(prefers-reduced-motion:reduce){.v3-project-link,.v2-pinned-nav button{transition:none}}
+/* Keep the personal header a simple workspace heading in every palette. */
+html .work-hero.v2-home-header {background:transparent!important;border:0!important;box-shadow:none!important;border-radius:0!important;padding:0 0 18px!important;margin:0 0 8px!important;min-height:0;color:var(--text);}
+html .v2-home-header h2,html .v2-home-header p {color:var(--text);}
+html .v2-home-header .work-eyebrow {color:var(--accent-dark);}

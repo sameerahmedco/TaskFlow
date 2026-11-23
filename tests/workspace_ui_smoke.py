@@ -15,7 +15,7 @@ with sync_playwright() as p:
     errs=[]
     page.on('pageerror', lambda e:errs.append(str(e)))
     page.set_content(html.replace('id="v2-tools-drawer" hidden','id="v2-tools-drawer"'))
-    page.add_style_tag(content=root.joinpath('assets/css/style.css').read_text() + '\n' + root.joinpath('assets/css/design-system.css').read_text() + '\n' + root.joinpath('assets/css/ui-overhaul.css').read_text() + '\n' + root.joinpath('assets/css/theme-accessibility.css').read_text() + '\n' + root.joinpath('assets/css/theme-palettes.css').read_text()+'\n'+root.joinpath('assets/css/v2-workspace.css').read_text())
+    page.add_style_tag(content=root.joinpath('assets/css/style.css').read_text() + '\n' + root.joinpath('assets/css/design-system.css').read_text() + '\n' + root.joinpath('assets/css/ui-overhaul.css').read_text() + '\n' + root.joinpath('assets/css/theme-accessibility.css').read_text() + '\n' + root.joinpath('assets/css/theme-palettes.css').read_text()+'\n'+root.joinpath('assets/css/workspace.css').read_text()+'\n'+root.joinpath('assets/css/v3-refinement.css').read_text() + '\n' + root.joinpath('assets/css/v3-compact.css').read_text())
     page.evaluate('''() => {
       window.__calls=[];
       window.__unread=1;

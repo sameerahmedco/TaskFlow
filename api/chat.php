@@ -11,6 +11,7 @@
  *        Org chat: Administrator only.
  */
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/message_hardening.php';
 start_secure_session();
 $me = current_user_record();
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && session_status() === PHP_SESSION_ACTIVE) {
@@ -98,45 +99,83 @@ if ($method === 'POST') {
     $scope = ($body['scope'] ?? 'team') === 'org' ? 'org' : 'team';
     $teamId = (int) ($body['team_id'] ?? 0);
     require_chat_scope($me, $scope, $teamId);
+    try { $content = taskflow_message_content($body['content'] ?? null); }
+    catch (InvalidArgumentException $e) { json_error($e->getMessage(), 400); }
 
-    $content = clean_str($body['content'] ?? '', 1000);
-    if ($content === '') json_error('Message cannot be empty.');
-
-    $stmt = $pdo->prepare('INSERT INTO chat_messages (team_id, scope, user_id, content) VALUES (?,?,?,?)');
-    $stmt->execute([$scope === 'org' ? null : $teamId, $scope, $me['id'], $content]);
-    $messageId = (int) $pdo->lastInsertId();
-
-    // @mentions: matched against the relevant audience — that team's
-    // members for a team chat, or everyone active for the org chat.
     $mentioned = [];
-    if (preg_match_all('/@([A-Za-z0-9_.\' -]{2,50})/', $content, $matches)) {
-        if ($scope === 'org') {
-            $memberStmt = $pdo->query('SELECT id, name FROM users WHERE is_active = 1');
-            $members = $memberStmt->fetchAll();
-        } else {
-            $memberStmt = $pdo->prepare('SELECT id, name FROM users WHERE team_id = ? AND is_active = 1');
-            $memberStmt->execute([$teamId]);
-            $members = $memberStmt->fetchAll();
-        }
-        $mentionStmt = $pdo->prepare('INSERT INTO chat_mentions (message_id, user_id) VALUES (?,?)');
-        foreach ($matches[1] as $rawName) {
-            $needle = strtolower(trim($rawName));
-            foreach ($members as $m) {
-                if (strtolower($m['name']) === $needle && !in_array($m['id'], $mentioned, true)) {
-                    $mentionStmt->execute([$messageId, $m['id']]);
-                    $mentioned[] = $m['id'];
+    try {
+        $pdo->beginTransaction();
+        // The shared sender lock serializes chat and DM posts across tabs.
+        taskflow_message_assert_can_send($pdo, (int)$me['id']);
+        $stmt = $pdo->prepare('INSERT INTO chat_messages (team_id, scope, user_id, content) VALUES (?,?,?,?)');
+        $stmt->execute([$scope === 'org' ? null : $teamId, $scope, $me['id'], $content]);
+        $messageId = (int)$pdo->lastInsertId();
+
+        // Mentions must either all persist with the message or none do.
+        // Detect only the first 10 distinct users, not an unbounded fan-out.
+        if (preg_match_all('/@([A-Za-z0-9_.\' -]{2,50})/', $content, $matches)) {
+            $names=[];
+            foreach ($matches[1] as $rawName) {
+                $key=strtolower(trim($rawName));
+                if ($key!=='') $names[$key]=true;
+            }
+            if (count($names)>10) throw new DomainException('Mention no more than 10 teammates at once.');
+            if ($names) {
+                // Query only named teammates; never load an entire organization
+                // into PHP for a single chat message.
+                $needleNames=array_keys($names);
+                $placeholders=implode(',',array_fill(0,count($needleNames),'?'));
+                if ($scope==='org') {
+                    $memberStmt=$pdo->prepare("SELECT id,name FROM users WHERE is_active=1 AND LOWER(name) IN ($placeholders)");
+                    $memberStmt->execute($needleNames);
+                } else {
+                    $memberStmt=$pdo->prepare("SELECT id,name FROM users WHERE team_id=? AND is_active=1 AND LOWER(name) IN ($placeholders)");
+                    $memberStmt->execute([$teamId,...$needleNames]);
+                }
+                $byName=[];
+                foreach($memberStmt->fetchAll(PDO::FETCH_ASSOC) as $member){
+                    $key=strtolower((string)$member['name']);
+                    $byName[$key][]=(int)$member['id'];
+                }
+                $mentionStmt=$pdo->prepare('INSERT INTO chat_mentions (message_id, user_id) VALUES (?,?)');
+                foreach($needleNames as $key){
+                    // Ambiguous same-name matches are ignored, not broadcast
+                    // to several people who might not be the intended target.
+                    $ids=$byName[$key]??[];
+                    if(count($ids)!==1)continue;
+                    $targetId=$ids[0];
+                    if(in_array($targetId,$mentioned,true))continue;
+                    $mentionStmt->execute([$messageId,$targetId]);
+                    $mentioned[]=$targetId;
                 }
             }
         }
+        log_activity($scope === 'org' ? null : $teamId, null, (int)$me['id'], 'chat_message',
+            $scope === 'org' ? 'Organization chat message posted' : 'Team chat message posted');
+        $pdo->commit();
+    } catch (OverflowException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        json_error($e->getMessage(), 429);
+    } catch (DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        json_error($e->getMessage(), 409);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('TaskFlow chat write failed: ' . get_class($e));
+        json_error('Could not send chat message.', 500);
     }
 
-    log_activity($scope === 'org' ? null : $teamId, null, $me['id'], 'chat_message', substr($content, 0, 100));
-
-    if (!empty($mentioned)) {
-        require_once __DIR__ . '/../includes/mailer.php';
-        $appUrl = app_link();
-        $mentionIds = array_values(array_diff($mentioned, [(int) $me['id']]));
-        notify('mentioned', $mentionIds, "{$me['name']} mentioned you in chat", "{$me['name']} mentioned you:\n\n$content\n\nOpen TaskFlow: $appUrl");
+    // Notification delivery is best-effort and never turns a committed
+    // message into a false failure (which would encourage duplicate retries).
+    if ($mentioned) {
+        try {
+            require_once __DIR__ . '/../includes/mailer.php';
+            $mentionIds = array_values(array_diff($mentioned, [(int)$me['id']]));
+            if ($mentionIds) notify('mentioned', $mentionIds, "{$me['name']} mentioned you in chat",
+                "{$me['name']} mentioned you:\n\n$content\n\nOpen TaskFlow: " . app_link());
+        } catch (Throwable $e) {
+            error_log('Chat notification dispatch failed: ' . get_class($e));
+        }
     }
 
     json_response(['id' => $messageId], 201);

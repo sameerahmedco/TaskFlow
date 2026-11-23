@@ -51,10 +51,10 @@ MOCK = r"""() => {
 # Inline assets for local, network-free Playwright execution. The product itself
 # continues to load normal same-origin CSS and the cached icon sprite.
 icons_svg=(root/'assets/img/icons.svg').read_text()
-style=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()+'\n'+(root/'assets/css/v2-workspace.css').read_text()
+style=(root/'assets/css/style.css').read_text()+'\n'+(root/'assets/css/design-system.css').read_text()+'\n'+(root/'assets/css/ui-overhaul.css').read_text()+'\n'+(root/'assets/css/theme-accessibility.css').read_text()+'\n'+(root/'assets/css/theme-palettes.css').read_text()+'\n'+(root/'assets/css/workspace.css').read_text()+'\n'+(root/'assets/css/v3-refinement.css').read_text()+'\n'+(root/'assets/css/project-overview.css').read_text()+'\n'+(root/'assets/css/v3-compact.css').read_text()+'\n'+(root/'assets/css/v3-task-details.css').read_text()
 app_js=(root/'assets/js/app.js').read_text()
 ui_js=(root/'assets/js/ui-enhancements.js').read_text()
-v2_js=(root/'assets/js/v2-workspace.js').read_text()
+v2_js=(root/'assets/js/workspace.js').read_text()
 brand_png='data:image/png;base64,'+base64.b64encode((root/'assets/img/taskflow-logo-192.png').read_bytes()).decode()
 def paint_brand(page):
     page.evaluate("""(url) => {
@@ -93,14 +93,14 @@ with sync_playwright() as p:
     assert page.locator('#auth-screen').is_visible()
     assert page.locator('.auth-story').is_visible()
     assert page.locator('.auth-form-eyebrow').inner_text() == 'WELCOME BACK'
-    assert page.locator('[data-theme-choice]').count()==8
+    assert page.locator('[data-theme-choice]').count()==10
     page.close()
 
     page = browser.new_page(viewport={'width':1440,'height':940},device_scale_factor=1)
     page.on('pageerror', lambda e: errors.append(str(e)))
     load_ui(page, authenticated=True)
     assert page.locator('#view-title').inner_text() == 'My Work'
-    assert 'v2.0.0' in page.locator('.sidebar-version').inner_text()
+    assert 'v3' in page.locator('.sidebar-version').inner_text()
     assert page.locator('.nav-svg').count()>15
     assert page.locator('.sidebar-finder').is_visible()
     assert page.locator('#v2-tools-drawer').is_hidden()
@@ -130,16 +130,17 @@ with sync_playwright() as p:
     assert page.locator('#quick-switch-modal').is_hidden()
     page.locator('[data-v2-view="my-work"]').click()
     page.wait_for_selector('.work-hero')
-    assert page.locator('.focus-shortcuts button').count() == 4
+    assert page.locator('.focus-shortcuts button').count() == 5
     page.locator('[data-work-filter="today"]').click()
     assert page.locator('#my-work-due').input_value() == 'today'
     page.locator('.v2-filter-details summary').click()
     page.locator('#my-work-due').select_option('all')
     page.locator('.v2-filter-details summary').click()
-    page.locator('#density-switch').click()
     assert page.evaluate('document.documentElement.dataset.density') == 'compact'
     page.locator('#density-switch').click()
     assert page.evaluate('document.documentElement.dataset.density') == 'comfortable'
+    page.locator('#density-switch').click()
+    assert page.evaluate('document.documentElement.dataset.density') == 'compact'
     page.screenshot(path=str(screens/'workspace.png'),full_page=True)
     page.locator('#topbar-search').click()
     page.wait_for_selector('#task-search-q')

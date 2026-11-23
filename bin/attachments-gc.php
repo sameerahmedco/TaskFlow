@@ -38,9 +38,39 @@ foreach($shards as $shard){
         }
     }
 }
+// A committed deletion may leave a private staged file if PHP crashes after
+// the DB transaction commits but before unlink. This scan is bounded and
+// never deletes a staged file while its storage_key is still referenced by DB.
+// In that case the operator may need to restore the file, not destroy it.
+$stagedExamined=0;$stagedOrphans=0;$stagedDeleted=0;$stagedRecoverable=0;$stagedTruncated=false;
+foreach($shards as $shard){
+    $prefix=basename($shard);
+    if(is_link($shard)||!preg_match('/\A[a-f0-9]{2}\z/D',$prefix))continue;
+    $staged=glob($shard.'/*.bin.deleting-*') ?: [];
+    foreach($staged as $file){
+        if($stagedExamined>=200){$stagedTruncated=true;break 2;}
+        if(is_link($file)||!is_file($file))continue;
+        $key=taskflow_attachment_quarantine_key(basename($file));
+        if($key===null||substr($key,0,2)!==$prefix)continue;
+        $stagedExamined++;
+        $mtime=@filemtime($file);
+        if($mtime===false||$mtime>=time()-172800)continue; // wait 48h
+        $stmt=$pdo->prepare('SELECT 1 FROM task_attachments WHERE storage_key=?');$stmt->execute([$key]);
+        if($stmt->fetchColumn()){
+            $stagedRecoverable++; // row still exists: never delete automatically
+            continue;
+        }
+        $stagedOrphans++;
+        if($delete && @unlink($file))$stagedDeleted++;
+    }
+}
 // On the next execution resume at the following key; after reaching the end
 // wrap to the start, allowing old and newly created orphan files to be found.
 rewind($cursorFile);ftruncate($cursorFile,0);
 fwrite($cursorFile,$remaining?$lastKey:'');fflush($cursorFile);
 flock($cursorFile,LOCK_UN);fclose($cursorFile);
-echo "Scanned: $examined; old orphans: $orphans; removed: $deleted; mode: ".($delete?'delete':'dry run')."; ".($remaining?'resume next run':'scan cycle complete')."\n";
+echo "Scanned: $examined; old orphans: $orphans; removed: $deleted; "
+    ."staged checked: $stagedExamined; expired staged orphans: $stagedOrphans; staged removed: $stagedDeleted; "
+    ."staged with live DB rows (manual recovery): $stagedRecoverable; mode: "
+    .($delete?'delete':'dry run')."; ".($remaining?'resume next run':'scan cycle complete')
+    ."; staged scan: ".($stagedTruncated?'200-file cap reached; rerun after review':'complete')."\n";

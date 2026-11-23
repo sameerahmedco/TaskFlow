@@ -50,7 +50,7 @@ with sync_playwright() as play:
     mobile.close()
     print('LIGHT screenshot: mobile-board.png')
 
-    for theme in ('ocean','forest','lavender','sunset','midnight'):
+    for theme in ('ocean','forest','lavender','sunset','midnight','charcoal','black'):
         page=page_for('design_ui_smoke.py','load_ui','my-work',palette=theme)
         page.screenshot(path=str(SHOTS/f'theme-{theme}.png'),full_page=True)
         page.close()

@@ -2,6 +2,7 @@
 /** One-time, guarded installation; never available after config/.installed is created. */
 declare(strict_types=1);
 require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../includes/release_health.php';
 if (APP_INSTALLED) {
     header('Location: ../index.php', true, 302);
     exit;
@@ -13,7 +14,7 @@ $installed = false;
 $configDir = realpath(__DIR__ . '/../config');
 $keyFile = $configDir . '/.setup-key';
 $requirements = [
-    'PHP 8.2 or newer' => PHP_VERSION_ID >= 80200,
+    'PHP 8.3 or newer' => PHP_VERSION_ID >= 80300,
     'PDO MySQL extension' => extension_loaded('pdo_mysql'),
     'Sodium encryption extension' => extension_loaded('sodium'),
     'OpenSSL extension' => extension_loaded('openssl'),
@@ -80,13 +81,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     $lk->execute([$lockName]);
                     if ((int) $lk->fetchColumn() !== 1) throw new RuntimeException('Installation busy.');
                     $lockHeld = true;
+                    $databaseVersion=(string)$pdo->query('SELECT VERSION()')->fetchColumn();
+                    if (!taskflow_release_mysql_version_valid($databaseVersion)) {
+                        throw new RuntimeException('Use Oracle MySQL 8 or newer; MariaDB is not certified.');
+                    }
                     if (is_file($configDir . '/.installed') || is_file($configDir . '/config.local.php')) {
                         throw new RuntimeException('Installation is already locked.');
                     }
-                    $exists = $pdo->prepare("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = ? AND table_name = 'users'");
+                    // Never mix a new installation into a partly configured or unrelated schema.
+                    // MySQL DDL commits independently, so retrying over partial tables is unsafe.
+                    $exists=$pdo->prepare('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=?');
                     $exists->execute([$dbName]);
-                    if ((int) $exists->fetchColumn() > 0 && (int) $pdo->query('SELECT COUNT(*) FROM users')->fetchColumn() > 0) {
-                        throw new RuntimeException('This database already contains user accounts. Refusing to claim an existing organization.');
+                    if ((int)$exists->fetchColumn() !== 0) {
+                        throw new RuntimeException('This database is not empty. Choose a new, empty database; do not overwrite existing data.');
                     }
                     $schema = (string) file_get_contents(__DIR__ . '/../schema.sql');
                     $schema = preg_replace('/--[^\n]*/', '', $schema);
@@ -130,7 +137,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
                     if ($pdo && $pdo->inTransaction()) $pdo->rollBack();
                     error_log('TaskFlow install failed: ' . $e->getMessage());
                     // Avoid leaking DB credentials or server details in browser.
-                    if (str_contains($e->getMessage(), 'already contains user accounts')) $errors[] = $e->getMessage();
+                    if (str_contains($e->getMessage(), 'database is not empty') || str_contains($e->getMessage(), 'MariaDB is not certified')) $errors[] = $e->getMessage();
                     else $errors[] = 'Installation failed. Check database credentials, database permissions and server error logs. Do not retry against a database already containing TaskFlow users.';
                 } finally {
                     if ($pdo && $lockHeld) {
@@ -143,11 +150,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
 }
 $h = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 ?><!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive">
 <title>Set up TaskFlow</title><link rel="icon" href="../assets/img/favicon-64.png">
 <link rel="stylesheet" href="assets/installer.css"><link rel="stylesheet" href="assets/installer-v1.css"><link rel="stylesheet" href="assets/installer-ui-overhaul.css"></head><body>
 <div class="page">
-<header class="masthead"><img src="../assets/img/taskflow-logo-192.png" alt="" width="48" height="48"><div><strong>TaskFlow</strong><span>SETUP · VERSION 2.0.0</span></div><span class="install-brand-pill">FIRST-RUN CONFIGURATION</span></header>
+<header class="masthead"><img src="../assets/img/taskflow-logo-192.png" alt="" width="48" height="48"><div><strong>TaskFlow</strong><span>SETUP · VERSION v3</span></div><span class="install-brand-pill">FIRST-RUN CONFIGURATION</span></header>
 <?php if ($installed): ?>
 <div class="panel completion"><div class="check-big" aria-hidden="true">✓</div><h1>Your workspace is ready.</h1><p>The first administrator has been created and the installer is permanently locked. You can now sign in securely.</p><a class="btn" href="../index.php">Open TaskFlow</a></div>
 <?php else: ?>

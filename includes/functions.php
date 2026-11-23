@@ -3,6 +3,7 @@
  * functions.php — shared helpers used by every API endpoint.
  */
 require_once __DIR__ . '/db.php';
+require_once __DIR__ . '/remember_cookie.php';
 
 function start_secure_session(): void {
     if (session_status() === PHP_SESSION_NONE) {
@@ -11,9 +12,17 @@ function start_secure_session(): void {
 }
 
 function json_response($data, int $status = 200): void {
-    http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($data);
+    try {
+        $json = json_encode($data, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
+        http_response_code($status);
+        echo $json;
+    } catch (JsonException $error) {
+        // Never emit a misleading empty 200 body if encoding fails.
+        error_log('TaskFlow response serialization failure: ' . get_class($error));
+        http_response_code(500);
+        echo '{"error":"Unable to encode the response."}';
+    }
     exit;
 }
 
@@ -83,17 +92,19 @@ function create_remember_token(int $userId): void {
     setcookie('taskflow_remember', $selector . ':' . $validator, [
         'expires' => time() + REMEMBER_ME_DAYS * 86400,
         'path' => '/',
-        'secure' => $isHttps || !taskflow_is_localhost(),
+        'secure' => $isHttps || !taskflow_allow_insecure_request(),
         'httponly' => true,
-        'samesite' => 'Lax',
+        'samesite' => 'Strict',
     ]);
 }
 
 /** Checks the remember_me cookie and silently re-establishes a session if it's valid. */
 function try_remember_login(): bool {
-    $cookie = $_COOKIE['taskflow_remember'] ?? '';
-    if (!$cookie || strpos($cookie, ':') === false) return false;
-    [$selector, $validator] = explode(':', $cookie, 2);
+    $raw = $_COOKIE['taskflow_remember'] ?? null;
+    if ($raw === null || $raw === '') return false;
+    $parts = taskflow_parse_remember_cookie($raw);
+    if ($parts === null) { clear_remember_cookie(); return false; }
+    ['selector'=>$selector, 'validator'=>$validator] = $parts;
 
     $pdo = get_pdo();
     $stmt = $pdo->prepare('SELECT * FROM remember_tokens WHERE selector = ?');
@@ -101,8 +112,14 @@ function try_remember_login(): bool {
     $row = $stmt->fetch();
     if (!$row) { clear_remember_cookie(); return false; }
 
-    if (strtotime($row['expires_at']) < time() || !hash_equals($row['validator_hash'], hash('sha256', $validator))) {
+    if (strtotime($row['expires_at']) < time()) {
         $pdo->prepare('DELETE FROM remember_tokens WHERE id = ?')->execute([$row['id']]);
+        clear_remember_cookie();
+        return false;
+    }
+    if (!hash_equals((string)$row['validator_hash'], taskflow_remember_cookie_hash($validator))) {
+        // Do not revoke another browser's legitimate session on a bogus validator.
+        // An attacker must prove the full secret before they can destroy a token.
         clear_remember_cookie();
         return false;
     }
@@ -123,7 +140,7 @@ function try_remember_login(): bool {
     if ($updated->rowCount() !== 1) { clear_remember_cookie(); return false; }
     setcookie('taskflow_remember', $selector . ':' . $newValidator, [
         'expires' => strtotime($row['expires_at']), 'path' => '/',
-        'secure' => taskflow_is_https() || !taskflow_is_localhost(),
+        'secure' => taskflow_is_https() || !taskflow_allow_insecure_request(),
         'httponly' => true, 'samesite' => 'Strict',
     ]);
     session_regenerate_id(true);
@@ -135,16 +152,18 @@ function try_remember_login(): bool {
 
 function clear_remember_cookie(): void {
     if (isset($_COOKIE['taskflow_remember'])) {
-        setcookie('taskflow_remember', '', ['expires' => time() - 3600, 'path' => '/', 'secure' => taskflow_is_https() || !taskflow_is_localhost(), 'httponly' => true, 'samesite' => 'Strict']);
+        setcookie('taskflow_remember', '', ['expires' => time() - 3600, 'path' => '/', 'secure' => taskflow_is_https() || !taskflow_allow_insecure_request(), 'httponly' => true, 'samesite' => 'Strict']);
     }
 }
 
 /** Called on logout: removes the DB token and the cookie, so the "remember me" session can't be reused. */
 function forget_remember_token(): void {
-    $cookie = $_COOKIE['taskflow_remember'] ?? '';
-    if ($cookie && strpos($cookie, ':') !== false) {
-        [$selector, ] = explode(':', $cookie, 2);
-        get_pdo()->prepare('DELETE FROM remember_tokens WHERE selector = ?')->execute([$selector]);
+    $parts = taskflow_parse_remember_cookie($_COOKIE['taskflow_remember'] ?? null);
+    if ($parts !== null) {
+        // Logout revokes only a proven selector + validator pair, not a
+        // legitimate token merely because someone supplied its selector.
+        get_pdo()->prepare('DELETE FROM remember_tokens WHERE selector = ? AND validator_hash = ?')
+            ->execute([$parts['selector'], taskflow_remember_cookie_hash($parts['validator'])]);
     }
     clear_remember_cookie();
 }

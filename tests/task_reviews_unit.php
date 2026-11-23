@@ -1,0 +1,36 @@
+<?php
+/** Task review input and permission policy, pure PHP (no database required). */
+declare(strict_types=1);
+require_once __DIR__.'/../includes/task_reviews.php';
+$count=0;
+$assert=static function(bool $ok,string $why)use(&$count):void { $count++;if(!$ok)throw new RuntimeException('FAIL '.$why);};
+$invalid=static function(callable $fn):bool{try{$fn();return false;}catch(InvalidArgumentException){return true;}};
+foreach([1,'2','178',PHP_INT_MAX] as $id)$assert(taskflow_review_id($id)>0,'valid ID');
+foreach([0,'01','-2','4x',1.2,[],null,false,'99999999999999999999999999'] as $id)$assert($invalid(fn()=>taskflow_review_id($id)),'invalid ID');
+$assert(taskflow_review_id(0,true)===0,'zero allowed for optional pagination cursor');
+foreach(['request','approve','request_changes','cancel'] as $action)$assert(taskflow_review_action($action)===$action,'known action');
+foreach(['resubmit','delete',null,1,[],true] as $action)$assert($invalid(fn()=>taskflow_review_action($action)),'invalid action');
+foreach(['pending','approved','changes_requested','cancelled'] as $status)$assert(taskflow_review_status($status)===$status,'known status');
+$assert(taskflow_review_status(null)===null&&taskflow_review_status('')===null,'empty status filter');
+foreach(['changes','active',1,false,[]] as $status)$assert($invalid(fn()=>taskflow_review_status($status)),'invalid status');
+$assert(taskflow_review_note('',false)==='','optional note');
+$assert(taskflow_review_note('  Ready for review  ',false)==='Ready for review','trim note');
+$assert($invalid(fn()=>taskflow_review_note('',true)),'changes note required');
+$assert($invalid(fn()=>taskflow_review_note('no',true)),'changes note min 5 bytes');
+$assert(taskflow_review_note('Revise estimate',true)==='Revise estimate','valid changes note');
+foreach([[],false,100,str_repeat('a',1001),"hi\0there","line\x1fbreak","broken\xFF"] as $note)$assert($invalid(fn()=>taskflow_review_note($note,false)),'malformed note rejected');
+$assert(taskflow_review_allowed('request',null,true,false,false,false,'to_do'),'editable task can submit review');
+$assert(taskflow_review_allowed('request','changes_requested',true,false,true,true,'in_progress'),'requester may resubmit after changes');
+$assert(!taskflow_review_allowed('request','pending',true,false,true,true,'review'),'duplicate pending blocked');
+$assert(!taskflow_review_allowed('request',null,false,false,false,false,'to_do'),'viewer cannot submit');
+$assert(!taskflow_review_allowed('request','approved',true,true,true,true,'done'),'completed task cannot request review');
+$assert(taskflow_review_allowed('approve','pending',true,true,false,false,'review'),'manager may approve another person');
+$assert(!taskflow_review_allowed('approve','pending',true,true,true,true,'review'),'reviewer cannot self approve');
+$assert(!taskflow_review_allowed('approve','pending',true,false,false,false,'review'),'member cannot approve');
+$assert(!taskflow_review_allowed('approve','pending',true,true,false,false,'in_progress'),'task cannot be approved unless in review');
+$assert(taskflow_review_allowed('request_changes','pending',false,true,false,false,'review'),'manager can return review');
+$assert(taskflow_review_allowed('cancel','pending',false,false,true,true,'review'),'submitter can cancel own pending');
+$assert(taskflow_review_allowed('cancel','pending',false,true,false,false,'review'),'manager can cancel team pending review');
+$assert(!taskflow_review_allowed('cancel','pending',false,false,false,false,'review'),'unrelated member cannot cancel');
+$assert(!taskflow_review_allowed('cancel','approved',true,true,true,true,'done'),'completed reviews cannot be cancelled');
+echo "All $count TaskFlow task review validation/policy checks passed.\n";

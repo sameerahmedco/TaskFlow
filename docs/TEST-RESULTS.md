@@ -1,35 +1,28 @@
-# TaskFlow v2.0.0 — Consolidated validation report
+# TaskFlow v3 — Public interface polish and release QA
 
-**Date:** November 20, 2026  
-**Status:** staging release candidate; not production/security certified.
+**Date:** 23 November 2026. **Release classification:** public-facing source/staging candidate, **not an unrestricted-production certification**.
 
-## Local checks
+## Verified locally
 
 | Check | Result |
 | --- | --- |
-| PHP syntax (`php -l`) | **138 / 138** PHP files passed |
-| JavaScript syntax | Main app, v2 workspace, theme bootstrap, UI enhancements, installer, invitations and recovery passed `node --check` |
-| PHP unit suites | **24** pure feature/unit suites passed (plus `feature_unit.php` in the comprehensive test runner) |
-| Static security regression | **193** checks passed, including v2 navigation, all existing server-side checks and v1 migration preservation |
-| Chromium browser smoke | **26 / 26 PASSED** synthetic-data Playwright suites, targeting Home, List, Board, collaboration, operations, themes and mobile |
-| Contrast | **66** selected WCAG 4.5:1 light/dark surface checks and **185** additional palette checks passed |
-| README screenshots | All five primary screenshots passed the white-background brightness guard in Light mode |
-| Schema compatibility | `schema.sql` unchanged from the published v1.22.0 baseline; **all 25** prior SQL migrations preserved |
-| API/feature compatibility | No existing `api/`, `includes/`, `bin/`, `install/`, `config/` or `tests/` modules removed |
-| GitHub integration | Read-only; no branch, tag, PR, release or commit was created remotely |
+| PHP syntax | **172 PHP source files** passed `php -l` |
+| PHP feature/policy tests | **38 unique PHP `*_unit.php` suites** passed |
+| Static security/source assertions | **284 checks** passed, including modal lifecycle, JSON response validation, account retry and session-expiry handling |
+| Chromium mocked-browser regression | **41/41** suites passed, including the new `public_release_ui_smoke.py` and all existing product/theme suites |
+| New focused dialog checks | Task-switch response ordering, late response after close, Tab/Shift+Tab focus traps, Escape, active screen-reader layer, malformed HTTP 200 JSON, busy-state error, preserved drafts, account creation retry, page switcher isolation, session-expiry sign-in recovery, mobile and themed dialogs |
+| GitHub README visuals | **10/10 inline screenshots** passed the white-background Light-mode audit |
+| Release source preflight | Passed `php bin/release-preflight.php --source`, including distributable secrets check |
+| Simulated malware-scanner suite | **10** offline socket/preflight scenarios passed; *not* real signature detection |
+| Release asset budget | Main app JS: ~401 KB uncompressed and ~89 KB gzip; combined CSS ~267 KB; slim ZIP ~622 KB, all within configured budgets |
+| Archive integrity | Both source and deploy ZIPs pass ZIP CRC and SHA-256 checks; repeated builds produce identical bytes |
+| Source continuity | Every file from the preceding **480-file v3 scanner release** retained; public `VERSION` remains `v3` |
 
-**Browser test details:** Tests load the actual UI and application routing in headless Chromium, but intercept API requests with representative synthetic responses. They do not validate real authenticated SQL authorization or production concurrency. The `v2_gallery_ui_smoke.py` test verifies Home/List/Board navigation, contextual tabs, collapsed tool library and keyboard search.
+## Not verified locally — release blockers
 
-## Local HTTP smoke checks
+- Actual MySQL 8 database migration, authenticated HTTP authorization and concurrency checks (there is no MySQL server or `pdo_mysql` in this container).
+- Genuine ClamAV signature detection on a production-like socket, including updated signature database and scanner outage behavior.
+- End-to-end HTTPS staging behind the real reverse proxy, password/MFA and persistent-session behavior, load testing, restore-tested backups, and independent security assessment.
+- Manual screen-reader evaluation and real-device browser testing beyond mocked Chromium runs.
 
-Using PHP's built-in local server with the app intentionally **unconfigured**: `/` returned HTTP **302** redirecting to the first-run installer; `/install/` returned **200**; v2 CSS and JS assets returned **200**; and an unauthenticated risk API request returned **401**.
-
-## Production release gates (not performed in this environment)
-
-- Apply the source upgrade in a **staging clone** with MySQL 8, production PHP extensions and realistic access roles.
-- Exercise MFA, password resets, invitations, session expiry, private attachments, role restrictions, CSV downloads, leave and approval transitions with **real HTTP/MySQL**, not mocked API fixtures.
-- Run the repository's MySQL integration workflow, concurrent write tests, security/pentest assessment and workload/load testing.
-- Inspect generated pages on supported desktop/mobile browsers and run a full keyboard/screen-reader accessibility audit.
-- Verify the deployment backed up and retained `config/config.local.php`, `config/.installed`, cryptographic keys and private attachments.
-
-Release files do not include secrets or automatically publish to the remote repository.
+**Release decision:** Suitable for GitHub review and controlled production-like staging. Hold unrestricted public deployment until the real-MySQL, antivirus, TLS, backup, accessibility and independent-security gates pass. The remote repository and any installed instance have not been changed by this local QA.

@@ -1,4 +1,4 @@
-/* TaskFlow 1.22.0: cohesive, WCAG-aware color palettes.
+/* TaskFlow v3: cohesive, WCAG-aware color palettes.
  * Loaded after theme-accessibility.css; legacy components still get either
  * light or dark semantic surfaces via [data-theme], and accent options are
  * applied using [data-palette]. No third-party theme engine or fonts.
@@ -127,7 +127,7 @@ html[data-palette="midnight"] :is(.auth-split .auth-card,.auth-screen:not(.auth-
 html[data-palette="midnight"] .sidebar-nav .nav-item {color:var(--text-dim);}
 html[data-palette="midnight"] .sidebar-nav .nav-item:hover {color:var(--accent-dark);}
 
-/* The sign-in appearance grid stays readable with eight choices on mobile. */
+/* The sign-in appearance grid stays readable with ten choices on mobile. */
 .auth-appearance {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;width:100%;max-width:100%;padding:5px;margin-bottom:17px;background:var(--surface-secondary);border-color:var(--border);}
 .auth-appearance button {min-width:0;padding:7px 3px;font-size:10.5px;display:flex;align-items:center;justify-content:center;gap:5px;color:var(--text-dim);white-space:nowrap;}
 .auth-appearance button::before {content:"";display:inline-block;flex:none;width:9px;height:9px;border-radius:50%;border:1px solid rgba(19,34,50,.28);background:var(--swatch,#fff);}
@@ -151,3 +151,6 @@ html[data-theme="dark"] .auth-appearance button[aria-pressed="true"] {background
 :is(html[data-palette="ocean"],html[data-palette="forest"],html[data-palette="lavender"],html[data-palette="sunset"],html[data-palette="midnight"]) :is(.auth-subtitle,.auth-footnote,.auth-form label,.auth-trust) {
   color:var(--text-dim);
 }
+
+.auth-appearance button[data-theme-choice="charcoal"] {--swatch:#292a2e;}
+.auth-appearance button[data-theme-choice="black"] {--swatch:#030303;}

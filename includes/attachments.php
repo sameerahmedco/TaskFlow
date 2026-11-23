@@ -56,3 +56,53 @@ function taskflow_attachment_path(string $base, string $key, bool $createDir=fal
     if (is_link($dir)) throw new RuntimeException('Unsafe private attachment directory.');
     return $dir.'/'.$key.'.bin';
 }
+
+
+/** Validate IDs before any SQL query; never coerce booleans or decimal strings. */
+function taskflow_attachment_id(mixed $raw): int {
+    if ((!is_int($raw) && !is_string($raw)) || !preg_match('/\A[1-9][0-9]*\z/D', (string)$raw)) {
+        throw new InvalidArgumentException('Invalid attachment or task ID.');
+    }
+    $id=filter_var($raw, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]);
+    if ($id===false) throw new InvalidArgumentException('Invalid attachment or task ID.');
+    return (int)$id;
+}
+
+/** Verify the on-disk bytes match the committed record before returning Content-Length. */
+function taskflow_attachment_integrity($handle, int $recordedSize): bool {
+    if (!is_resource($handle) || $recordedSize < 1 || $recordedSize > TASKFLOW_MAX_ATTACHMENT_BYTES) return false;
+    $stat=fstat($handle);
+    return is_array($stat) && isset($stat['size']) && (int)$stat['size']===$recordedSize;
+}
+
+/**
+ * Move a private attachment aside before deleting its DB row. Should the
+ * transaction roll back, the original file can be restored. A crash between
+ * commit and unlink can leave a private orphan; report and clean in staging.
+ */
+function taskflow_attachment_quarantine(string $path): ?string {
+    if (is_link($path)) throw new RuntimeException('Unsafe private attachment path.');
+    if (!file_exists($path)) return null; // stale DB row: allow record cleanup
+    if (!is_file($path)) throw new RuntimeException('Attachment is not a regular file.');
+    $moved=$path.'.deleting-'.bin2hex(random_bytes(12));
+    if (!rename($path,$moved)) throw new RuntimeException('Could not stage private attachment removal.');
+    // rename() preserves an old upload's mtime. Stamp the staging time so
+    // the sweeper's 48-hour grace starts on deletion, not original upload.
+    if (!@touch($moved)) {
+        if (!@rename($moved,$path))error_log('Private staged attachment needs manual restore.');
+        throw new RuntimeException('Could not timestamp staged private attachment.');
+    }
+    return $moved;
+}
+
+function taskflow_attachment_restore(string $moved, string $path): bool {
+    if (!is_file($moved) || is_link($moved) || file_exists($path) || is_link($path)) return false;
+    return rename($moved,$path);
+}
+
+
+/** Only our exact private staged-delete format is eligible for GC inspection. */
+function taskflow_attachment_quarantine_key(string $filename): ?string {
+    if (preg_match('/\A([a-f0-9]{64})\.bin\.deleting-[a-f0-9]{24}\z/D',$filename,$match)!==1) return null;
+    return $match[1];
+}

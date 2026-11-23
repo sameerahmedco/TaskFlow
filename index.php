@@ -11,8 +11,9 @@ start_secure_session();
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow,noarchive">
 <meta name="theme-color" content="#ffffff">
-<meta name="description" content="TaskFlow is a calm, secure and self-hosted workspace for projects, tasks and teams.">
+<meta name="description" content="TaskFlow is a self-hosted workspace for projects, tasks and teams.">
 <title>TaskFlow | Work beautifully together</title>
 <link rel="icon" type="image/png" href="assets/img/favicon-64.png">
 <script src="assets/js/theme-boot.js?v=<?php echo @filemtime(__DIR__ . '/assets/js/theme-boot.js') ?: time(); ?>"></script>
@@ -21,14 +22,18 @@ start_secure_session();
 <link rel="stylesheet" href="assets/css/ui-overhaul.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/ui-overhaul.css') ?: time(); ?>">
 <link rel="stylesheet" href="assets/css/theme-accessibility.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/theme-accessibility.css') ?: time(); ?>">
 <link rel="stylesheet" href="assets/css/theme-palettes.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/theme-palettes.css') ?: time(); ?>">
-<link rel="stylesheet" href="assets/css/v2-workspace.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/v2-workspace.css') ?: time(); ?>">
+<link rel="stylesheet" href="assets/css/workspace.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/workspace.css') ?: time(); ?>">
+<link rel="stylesheet" href="assets/css/project-overview.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/project-overview.css') ?: time(); ?>">
+<link rel="stylesheet" href="assets/css/v3-refinement.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/v3-refinement.css') ?: time(); ?>">
+<link rel="stylesheet" href="assets/css/v3-compact.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/v3-compact.css') ?: time(); ?>">
+<link rel="stylesheet" href="assets/css/v3-task-details.css?v=<?php echo @filemtime(__DIR__ . '/assets/css/v3-task-details.css') ?: time(); ?>">
 </head>
 <body>
 
 <!-- ===================== SIGN IN ===================== -->
 <div id="auth-screen" class="auth-screen auth-split">
   <div class="auth-story" aria-label="About TaskFlow">
-    <div class="auth-story-brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="auth-story-version">2.0.0</span></div>
+    <div class="auth-story-brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="auth-story-version">v3</span></div>
     <div class="auth-story-inner">
       <div class="auth-story-eyebrow"><span class="signal-dot"></span> Your work, in one place</div>
       <h1>Great work starts<br>with <em>clear thinking.</em></h1>
@@ -47,6 +52,7 @@ start_secure_session();
   <div class="auth-login-pane">
     <div class="auth-card">
       <div class="auth-mobile-brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><strong>TaskFlow</strong></div>
+      <details class="auth-theme-disclosure"><summary><span>Appearance</span><small>Light, dark and colors</small></summary>
       <div class="auth-appearance" role="group" aria-label="Sign-in appearance">
         <button type="button" data-theme-choice="light" aria-pressed="true">Light</button>
         <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
@@ -56,7 +62,9 @@ start_secure_session();
         <button type="button" data-theme-choice="lavender" aria-pressed="false">Lavender</button>
         <button type="button" data-theme-choice="sunset" aria-pressed="false">Sunset</button>
         <button type="button" data-theme-choice="midnight" aria-pressed="false">Midnight</button>
-      </div>
+        <button type="button" data-theme-choice="charcoal" aria-pressed="false">Charcoal</button>
+        <button type="button" data-theme-choice="black" aria-pressed="false">Black</button>
+      </div></details>
       <span class="auth-form-eyebrow">WELCOME BACK</span>
       <h2 class="auth-heading">Sign in to your workspace</h2>
       <p class="auth-subtitle">Pick up where your team left off.</p>
@@ -117,7 +125,7 @@ start_secure_session();
   <a class="skip-to-content" href="#view-container">Skip to content</a>
   <aside id="workspace-sidebar" class="sidebar" aria-label="Workspace navigation">
     <div class="sidebar-top">
-      <div class="brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="brand-version">2.0.0</span></div>
+      <div class="brand"><img class="brand-mark" src="assets/img/taskflow-logo-192.png" alt=""><span>TaskFlow</span><span class="brand-version">v3</span></div>
       <div class="workspace-card">
         <div class="workspace-card-label">WORKSPACE</div>
         <div class="workspace-card-name" id="org-name"></div>
@@ -138,6 +146,10 @@ start_secure_session();
       <button type="button" data-v2-view="calendar"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#calendar"></use></svg><span>Calendar</span></button>
       <button type="button" data-v2-view="inbox"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#bell"></use></svg><span>Inbox</span></button>
     </nav>
+    <section class="v3-project-rail" aria-label="Projects">
+      <div class="v3-rail-heading"><span>PROJECTS</span><span class="v3-rail-count" id="v3-project-count">0</span></div>
+      <div class="v3-project-items" id="v3-project-items" aria-live="polite"><span class="v3-project-empty">Loading projects…</span></div>
+    </section>
     <button type="button" id="v2-tools-toggle" class="v2-tools-toggle" aria-expanded="false" aria-controls="v2-tools-drawer"><span><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#layers"></use></svg>Explore all tools</span><span class="v2-tools-chevron" aria-hidden="true">+</span></button>
     <div class="v2-tool-drawer" id="v2-tools-drawer" hidden>
       <p class="v2-tool-help">All your existing TaskFlow features, organized in one place.</p>
@@ -154,6 +166,7 @@ start_secure_session();
       <button type="button" class="nav-item" data-view="calendar"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#calendar"></use></svg><span>Calendar</span></button>
       <button type="button" class="nav-item" data-view="time-reports"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#clock"></use></svg><span>Time reports</span></button>
       <button type="button" class="nav-item" data-view="timesheet"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#calendar"></use></svg><span>Weekly timesheet</span></button>
+      <button type="button" class="nav-item" data-view="project-overview"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#layers"></use></svg><span>Project overview</span></button>
       <button type="button" class="nav-item" data-view="portfolio"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#layers"></use></svg><span>Project portfolio</span></button>
       <button type="button" class="nav-item" data-view="project-risks"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#flag"></use></svg><span>Project risks</span></button>
       <button type="button" class="nav-item" data-view="project-decisions"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#check-square"></use></svg><span>Project decisions</span></button>
@@ -169,6 +182,7 @@ start_secure_session();
       <button type="button" class="nav-item" data-view="priorities"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#flag"></use></svg><span>Weekly goals</span></button>
       <button type="button" class="nav-item" data-view="team-dashboard"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#bar-chart"></use></svg><span>Team insights</span></button>
       <span class="nav-group-label">COLLABORATE</span>
+      <button type="button" class="nav-item" data-view="task-reviews"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#check-square"></use></svg><span>Task reviews</span></button>
       <button type="button" class="nav-item" data-view="announcements"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#bell"></use></svg><span>Announcements</span></button>
       <button type="button" class="nav-item" data-view="chat"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#message"></use></svg><span>Team chat</span></button>
       <button type="button" class="nav-item" data-view="roster"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#users"></use></svg><span>People</span></button>
@@ -197,6 +211,8 @@ start_secure_session();
           <option value="lavender">Lavender</option>
           <option value="sunset">Sunset</option>
           <option value="midnight">Midnight</option>
+          <option value="charcoal">Charcoal</option>
+          <option value="black">Black / OLED</option>
         </select>
       </label>
       <div class="me-chip" id="me-chip"></div>
@@ -204,7 +220,7 @@ start_secure_session();
         <button id="change-pw-btn" class="icon-btn" title="Change password" aria-label="Change password"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#key"></use></svg></button>
         <button id="logout-btn" class="btn btn-ghost logout-btn" title="Log out">Sign out</button>
       </div>
-      <div class="sidebar-version">TaskFlow <span>v2.0.0</span></div>
+      <div class="sidebar-version">TaskFlow <span>v3</span></div>
     </div>
   </aside>
   <main class="main" id="main-content">
@@ -213,6 +229,7 @@ start_secure_session();
       <div class="topbar-heading"><div class="topbar-overline" id="view-overline">WORKSPACE / OVERVIEW</div><h1 id="view-title">My Work</h1></div>
       <div class="topbar-utilities">
         <button class="topbar-search" id="topbar-search" type="button" aria-label="Search tasks"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#search"></use></svg><span>Search anything</span><kbd>⌘ K</kbd></button>
+        <button class="theme-switch" type="button" id="workspace-focus-toggle" aria-label="Hide sidebar for focus" aria-pressed="false" title="Focus workspace: hide sidebar"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#maximize"></use></svg></button>
         <button class="quick-switch-btn" id="quick-switch-btn" type="button" aria-haspopup="dialog" aria-controls="quick-switch-modal" title="Switch page (Ctrl+Shift+K)"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#layers"></use></svg><span>Jump to</span><kbd>G</kbd></button>
         <button class="theme-switch" id="density-switch" type="button" aria-label="Use compact layout" title="Use compact layout" aria-pressed="false"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#columns"></use></svg></button>
         <button class="theme-switch" id="theme-switch" type="button" aria-label="Switch appearance" title="Switch appearance"><svg class="nav-svg" viewBox="0 0 24 24" aria-hidden="true"><use href="assets/img/icons.svg#moon"></use></svg></button>
@@ -249,10 +266,11 @@ start_secure_session();
 </div>
 
 <!-- ===================== GENERIC PROMPT MODAL ===================== -->
-<div id="prompt-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="prompt-title">
+<div id="prompt-modal" class="modal-overlay hidden" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="prompt-title">
   <div class="modal prompt-modal">
     <h3 id="prompt-title"></h3>
     <div id="prompt-body"></div>
+    <p id="prompt-error" class="prompt-error" role="alert" hidden></p>
     <div class="prompt-actions">
       <button class="btn btn-ghost" id="prompt-cancel">Cancel</button>
       <button class="btn btn-primary" id="prompt-confirm">Confirm</button>
@@ -262,8 +280,9 @@ start_secure_session();
 
 <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
+<script src="assets/js/task-import.js?v=<?php echo @filemtime(__DIR__ . '/assets/js/task-import.js') ?: time(); ?>"></script>
 <script src="assets/js/app.js?v=<?php echo @filemtime(__DIR__ . '/assets/js/app.js') ?: time(); ?>"></script>
 <script src="assets/js/ui-enhancements.js?v=<?php echo @filemtime(__DIR__ . '/assets/js/ui-enhancements.js') ?: time(); ?>"></script>
-<script src="assets/js/v2-workspace.js?v=<?php echo @filemtime(__DIR__ . '/assets/js/v2-workspace.js') ?: time(); ?>"></script>
+<script src="assets/js/workspace.js?v=<?php echo @filemtime(__DIR__ . '/assets/js/workspace.js') ?: time(); ?>"></script>
 </body>
 </html>

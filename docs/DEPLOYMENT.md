@@ -1,5 +1,44 @@
 # TaskFlow deployment and growth notes
 
+## Current v3 private attachment deployment gate
+
+Private attachments require `TASKFLOW_ATTACHMENTS_DIR` pointing at a restricted, writable directory **outside** the PHP/Apache/Nginx document root. Do not publish that directory through an alias, public storage mount or URL. Preserve the directory with its permissions during upgrades and include it in encrypted, restore-tested backups.
+
+Upload and delete events now commit alongside their audit records. For deletions the private file is moved to a random `.bin.deleting-*` filename before the database transaction commits; it is restored if that transaction fails. On crash, any staged file left for 48 hours is examined by the existing `php bin/attachments-gc.php` (read-only dry run). Use `--delete` only after inspecting the dry-run report. The sweeper **will not** remove a staged file when a live metadata row still refers to its storage key: investigate and recover the private file manually. Do not perform orphan-cleanup and filesystem restores without a verified database and attachment backup.
+
+In staging, verify member/manager upload and download rights, unauthorized cross-team access, the 8 MiB/15 attachments limits, file size mismatch responses, audit failure rollbacks and restored file bytes. CI's disposable MySQL job now includes a multipart HTTP smoke but must actually pass before launch. No new SQL migration is required from the immediately preceding v3 release.
+
+## Current v3 staging check — messaging consistency
+
+No new migration is needed to deploy this patch over the preceding v3 Transport release. Chat, org chat, and DM now share a **15 messages/minute and 120 messages/hour per sender** limit enforced inside a MySQL transaction with an active-user row lock. Excess requests return HTTP 429, which the frontend surfaces as an error. These limits are additional defense in depth; continue to use your WAF/reverse proxy, traffic quotas, server logs, and private notifications policy.
+
+**In MySQL staging**, send chat and DMs concurrently from two browsers using the same account; confirm the combined limit is enforced, no rate-rejected row is stored, failed mention/audit insertion rolls back the chat message, and notification transport failures do not result in duplicate messages. Confirm that a sender cannot write to another team's chat even when direct messaging across teams is permitted by your organization. Review sender-index query plans and the p95 write latency with a representative number of historic messages before opening public traffic. No live MySQL performance claim is made by source-only checks.
+
+
+## New v3 release validation: exact MySQL metadata and HTTP exposure
+
+After applying all historical migrations, run `php bin/release-preflight.php --json` on the installed host. It now checks critical index definitions in the correct column order, source and referenced columns of FK constraints, strict MySQL SQL mode, `foreign_key_checks=1` and InnoDB engines. These checks are read-only and fail closed if the required signatures are missing.
+
+For your actual **HTTPS** site, run `python3 bin/http-security-scan.py --url https://tasks.example.org --json` from an operator's machine. Replace the URL with your canonical TaskFlow address. The scan uses Python's standard library, follows no redirects, requires valid TLS by default and tests only anonymous GET endpoints. Resolve exposed `/config/`, `/docs/`, `/bin/`, or `/includes/` responses and absent CSP/HSTS, no-index, session cookie and frame/no-sniff headers. Run it against Apache/Nginx behind the real TLS edge, not `php -S`. An all-green scan is a **hosting smoke test**, not permission to release without database, authentication and independent security testing.
+
+For Apache, preserve the included root `.htaccess`; it now sets `X-Robots-Tag` for static files in addition to PHP responses. For Nginx, keep the server-level security headers rather than overriding them in asset locations. Use `--ci-static-only --allow-local-http` solely when smoke-testing a local Docker runtime: it intentionally excludes dynamic/session and HTTPS readiness.
+
+
+## Current TaskFlow v3 public-deployment checks
+
+1. **Use the release package correctly.** GitHub source includes CI/tests and default white-background screenshots. The slim deployment archive contains the app, installer, migration scripts and operational docs. It omits screenshots/tests without removing software features. Never upload the source ZIP itself to your web root or serve it publicly.
+2. **Provision first:** PHP **8.3+** with `pdo_mysql`, `mbstring`, `openssl`, `sodium`, `fileinfo`; MySQL 8+; valid TLS certificate; dedicated least-privilege database account; and secure PHP session storage. On production, configure `upload_max_filesize=8M`, `post_max_size=10M`, `display_errors=Off`, and OPcache. The Dockerfile provides these defaults.
+3. **Protect private paths.** Apache serves from this repository with its supplied `.htaccess` and deny rules; load `rewrite`, `headers`, `deflate`, and `expires`. For Nginx, use [`deployment/nginx-taskflow.conf.example`](deployment/nginx-taskflow.conf.example) and replace every domain/TLS/path/FPM placeholder. Do **not** expose `config/`, `includes/`, `bin/`, `tests/`, `docs/`, `.git/`, `.github/`, or migration SQL to the internet. PHP's built-in web server is only for local development.
+4. **Upgrade safely.** Take a full backup (MySQL, config/app key, setup marker, and private attachments), and **restore-test** on staging. Apply `docs/migrations/v3-discussions.sql` when missing, then `docs/migrations/v3-task-reviews.sql` when missing. Apply each once and never run `schema.sql` over an installed organization.
+5. **Run the preflight:** `php bin/release-preflight.php --source` checks a clean source tree, and `php bin/release-preflight.php` checks installed production settings, required schema, app key, file permissions, HTTPS URL and PHP limits. Both are read-only. Any failed mandatory check blocks release. Warnings still require operator review.
+6. **Verify in staging:** Run the MySQL integration jobs on a disposable database, perform authenticated creator/manager/member and cross-team authorization checks, verify CSRF, test simultaneous review decisions/bulk edits, and check mobile Light/Charcoal/Black UI on actual devices.
+7. **Operate deliberately:** Set up offsite backups and restore drills, mail queue/maintenance CLI cron if using mail and reminders, monitored logs, appropriate security/retention policy, and a reverse-proxy rate limit. Set `TASKFLOW_ATTACHMENTS_DIR` to a restricted writable path **outside** the document root to enable attachments.
+8. **Public-launch gate:** Do not advertise a release as production-certified until the security, MySQL, staging load, and live TLS gates in [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) are complete.
+
+## Current v3 discussion schema upgrade
+
+**Required for existing v3 deployments:** Apply `docs/migrations/v3-discussions.sql` exactly once to a backed-up, restore-tested MySQL 8 staging database before deploying the revised `api/comments.php` and `api/task.php`. The migration adds nullable parent references, edit-version metadata, and indexes to `comments` without dropping prior comments. Fresh installations already include the new schema. Test comments pagination, parent-delete behavior, cross-team HTTP permissions, edit conflicts, notifications and load in staging. Keep secrets, installer locks and private attachments unchanged. See [Upgrade](UPGRADE.md).
+
 ## Recommended topology
 
 ```
@@ -25,6 +64,12 @@ Adapt [`nginx-example.conf`](nginx-example.conf) to your socket and domain. Do n
 ### Database
 
 Use an empty DB, a dedicated SQL user and `utf8mb4`. `schema.sql` is **for new installations only**; the wizard imports it automatically. For upgrades see `UPGRADE.md`. Separate each organization's data by installation/database; this code has no true tenant IDs.
+
+### Production transport policy (current v3 hardening)
+
+Even if Apache/PHP receives the request from a loopback IP, an installed `production` app refuses HTTP when the edge has not supplied a validated HTTPS indication. A spoofed `Host: localhost` or `X-Forwarded-Proto: https` from an **untrusted** peer cannot enable a development exception. If the edge terminates TLS, set `TASKFLOW_TRUSTED_PROXY_IP` to its exact address and ensure that it removes/replaces any client-supplied `X-Forwarded-Proto`. Configure `TASKFLOW_APP_URL` to the externally reachable **HTTPS** address. The local PHP development server may use HTTP only with `TASKFLOW_APP_ENV=development` and an explicitly loopback HTTP app URL. Local first-time setup is also permitted when no public canonical URL is set.
+
+After deployment, use `php bin/release-preflight.php --json` and `python3 bin/http-security-scan.py --url https://your-real-host --json`; both must be checked. The scanner cannot prove authenticated permission boundaries. Run the disposable MySQL 8 authenticated HTTP job in GitHub and audit saved-login invalidation/logout before opening public access.
 
 ### Reverse proxies
 
@@ -79,7 +124,7 @@ For existing preview databases, apply any missing migrations following `docs/UPG
 
 Uploads are **disabled by default**. Provision a writable directory outside the public PHP document root with mode `0700`, owned by the PHP application user. In your PHP process environment set `TASKFLOW_ATTACHMENTS_DIR=/var/lib/taskflow-files` (replace with a safe absolute path). PHP-FPM pools often clear environment variables; use an explicit trusted pool environment setting and restart the worker. Do not place this directory inside `assets/`, `uploads/` under the web root, or a shared static host directory.
 
-Set `upload_max_filesize >= 8M`, `post_max_size >= 10M`, and enable PHP `fileinfo`. TaskFlow permits only selected non-executable download formats. It does **not** scan attachments for malware and does **not** embed/preview them in HTML. Add your own antivirus and retention controls for sensitive deployments. Back up files and MySQL together (matching backup timestamps), restrict file-system read access, and use a secure shared disk only if running multiple app nodes.
+Set `upload_max_filesize >= 8M`, `post_max_size >= 10M`, and enable PHP `fileinfo`. TaskFlow permits only selected non-executable download formats. It **requires local ClamAV malware scanning in production** and does not embed/preview attachments in HTML. Configure `TASKFLOW_CLAMD_SOCKET` and keep scanner signatures current; otherwise all new production uploads fail closed. [Scanner setup and operational test](deployment/clamav-attachment-scanning.md). Apply retention and backup policies appropriate to your deployment. Back up files and MySQL together (matching backup timestamps), restrict file-system read access, and use a secure shared disk only if running multiple app nodes.
 
 Files from deleted tasks may remain on disk after database cascades; use `php bin/attachments-gc.php` to preview and `php bin/attachments-gc.php --delete` to reclaim old orphaned files. The cleaner is CLI-only, caps each pass at 1,000 files, and skips files younger than 24 hours. Repeat runs on large datasets. Test restores before production deployment.
 
@@ -150,3 +195,23 @@ When upgrading from 1.20.0, no SQL migration is required. Deploy the new `assets
 ## Theme palettes (1.22.0)
 
 Deploy `assets/css/theme-palettes.css` **after** `theme-accessibility.css`; preserve `assets/js/theme-boot.js` in the document head so saved appearances are applied before rendering. White-background Light remains the first-run default and the documented GitHub preview. System is reactive, Ocean/Forest/Lavender/Sunset are light-based themes, and Midnight is dark-based. Theme choice is client-side only. Check HTTP 200 responses, CDN asset cache invalidation, sign-in/multi-factor pages, dark and custom palettes, and mobile controls before production. No SQL migration is required from v1.21.0.
+
+### Task details and checklist (current TaskFlow v3)
+
+This release adds no schema changes or cron tasks. The checklist API limits single and batch writes and serializes batch paste/reorder with a task-row lock. Confirm your PHP installation has the documented `mbstring` and `pdo_mysql` extensions, and test simultaneous checklist edits with different role accounts on a staging clone. The task-details stylesheet (`assets/css/v3-task-details.css`) must be served alongside the existing ten theme styles.
+
+## Current v3 task reviews migration
+
+After taking and restore-testing a backup, apply **`docs/migrations/v3-task-reviews.sql` once** on a staging clone of the preceding TaskFlow v3 Discussions database, then deploy the new application files. The migration creates a current-review table and an append-only review-events table. Existing tasks, comments, time tracking, and notification settings are unchanged. Do not run the first-time installer on an existing organization. When upgrading an older v3 installation, apply `v3-discussions.sql` before `v3-task-reviews.sql`. Run the MySQL integration workflow and verify cross-team access, self-review restrictions, retry after stale review and concurrent task-status changes.
+
+## Public launch QA — database installation and staging
+
+First-time setup now requires PHP 8.3+, Oracle MySQL 8+ (MariaDB is not certified) and a **completely empty database**. Never attempt to repair a partially installed or older database by rerunning first-time setup. Restore a backup and follow the dedicated migrations instead. After installing or upgrading, run `php bin/release-preflight.php --json` on the actual host: it checks the required indexes and foreign-key delete behavior as well as schema tables/columns. Complete [the staging acceptance runbook](STAGING-ACCEPTANCE.md) and run all three MySQL CI jobs before unrestricted public access.
+
+### Production attachment malware scanning
+
+When `TASKFLOW_ATTACHMENTS_DIR` is enabled, **also configure `TASKFLOW_CLAMD_SOCKET`** to a locally accessible ClamAV Unix-domain socket. The PHP worker needs socket access, and clamd's stream limit must exceed 8 MiB. New production uploads refuse missing/down scanners (HTTP 503) and detected threats (HTTP 422), with no private file or metadata stored. The CLI production preflight verifies the daemon responds to `PING`, but a real harmless test-virus detection in staging is still mandatory. See [dedicated deployment instructions](deployment/clamav-attachment-scanning.md).
+
+## TaskFlow v3 public interface regression gate
+
+Before public release, check that the real hosted build traps and restores keyboard focus in task and prompt dialogs; test slow/malformed API responses, expired sessions, account-creation validation errors, task switching under latency, and interrupted saves. The `tests/public_release_ui_smoke.py` suite exercises these client behaviors with synthetic API responses, including Light/Charcoal/Black and mobile views, and is wired into GitHub CI. It does **not** prove that a real database write committed or rolled back. Follow `docs/STAGING-ACCEPTANCE.md` for the installed-server tests and keep ClamAV, MySQL and HTTPS requirements unchanged.

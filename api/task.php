@@ -3,6 +3,7 @@ require_once __DIR__ . '/../includes/task_dependencies.php';
 require_once __DIR__ . '/../includes/recurrence.php';
 require_once __DIR__ . '/../includes/workload.php';
 require_once __DIR__ . '/../includes/task_watchers.php';
+require_once __DIR__ . '/../includes/task_reviews.php';
 require_once __DIR__ . '/../includes/timeline.php';
 start_secure_session();
 $me = current_user_record();
@@ -43,12 +44,29 @@ if ($method === 'GET') {
     $task['dependencies'] = taskflow_dependency_rows($pdo, $taskId);
     $task['unfinished_blockers'] = taskflow_unfinished_blockers($pdo, $taskId);
 
+    // Bounded initial discussion page: latest 60 comments, chronological display.
+    // Older pages are available from the authenticated comments API.
     $stmt = $pdo->prepare(
-        'SELECT c.id, c.content, c.created_at, u.id AS user_id, u.name, u.avatar_color
-         FROM comments c JOIN users u ON u.id = c.user_id WHERE c.task_id = ? ORDER BY c.created_at ASC'
+        'SELECT c.id,c.content,c.created_at,c.edited_at,c.edit_version,c.parent_comment_id,
+           u.id AS user_id,u.name,u.avatar_color,pu.name AS parent_author_name
+         FROM comments c JOIN users u ON u.id=c.user_id
+         LEFT JOIN comments parent ON parent.id=c.parent_comment_id AND parent.task_id=c.task_id
+         LEFT JOIN users pu ON pu.id=parent.user_id
+         WHERE c.task_id=? ORDER BY c.id DESC LIMIT 61'
     );
     $stmt->execute([$taskId]);
-    $comments = $stmt->fetchAll();
+    $comments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $moreComments=count($comments)>60;
+    if($moreComments)array_pop($comments);
+    $comments=array_reverse($comments);
+    $task['comments_next_before_id']=$moreComments && $comments ? (int)$comments[0]['id'] : null;
+    foreach($comments as &$comment){
+        $comment['id']=(int)$comment['id'];
+        $comment['user_id']=(int)$comment['user_id'];
+        $comment['edit_version']=(int)$comment['edit_version'];
+        $comment['parent_comment_id']=$comment['parent_comment_id']===null?null:(int)$comment['parent_comment_id'];
+    }
+    unset($comment);
     // attach_roles_and_team expects an `id` key; comments use `user_id` for the author
     $commentAuthors = array_map(fn($c) => ['id' => $c['user_id']], $comments);
     $commentAuthors = attach_roles_and_team($pdo, $commentAuthors);
@@ -74,6 +92,22 @@ if ($method === 'GET') {
     $watcherIds = taskflow_watcher_ids($pdo, $taskId, (int)$task['team_id']);
     $task['is_watching'] = in_array((int)$me['id'], $watcherIds, true);
     $task['watcher_count'] = count($watcherIds);
+
+    // Team-scoped review status and capped audit history; no external approver data.
+    $reviewStmt=$pdo->prepare('SELECT id,status,submitted_by,submitted_name,request_note,reviewer_note,
+        reviewed_at,submitted_at,version FROM task_review_requests WHERE task_id=? AND team_id=?');
+    $reviewStmt->execute([$taskId,(int)$task['team_id']]);
+    $task['review']=$reviewStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    $task['review_events']=[];
+    if($task['review']){
+        $task['review']['id']=(int)$task['review']['id'];
+        $task['review']['version']=(int)$task['review']['version'];
+        $task['review']['submitted_by']=$task['review']['submitted_by']===null?null:(int)$task['review']['submitted_by'];
+        $history=$pdo->prepare('SELECT event_type,note,actor_name,created_at FROM task_review_events
+          WHERE review_id=? ORDER BY id DESC LIMIT 15');
+        $history->execute([$task['review']['id']]);
+        $task['review_events']=$history->fetchAll(PDO::FETCH_ASSOC);
+    }
 
     // Do not expose other people's logged hours to unrelated team members.
     $canSeeTime = (bool) array_intersect($me['roles'], ['administrator','manager'])
@@ -187,7 +221,14 @@ if ($method === 'PUT' || $method === 'PATCH') {
         if (!taskflow_task_dates_consistent($effectiveStart, $effectiveDue)) {
             throw new DomainException('Due date cannot precede start date.');
         }
+        // A pending manager review is a completion gate. The review endpoint
+        // serializes its decision on the same task lock and alone transitions it.
+        if (isset($body['status']) && $body['status'] !== 'review' && $body['status'] !== $priorStatus
+            && taskflow_review_is_pending($pdo,$taskId)) {
+            throw new DomainException('This task has a pending review. Approve, request changes, or cancel it first.');
+        }
         if (isset($body['status']) && $body['status'] === 'done' && $priorStatus !== 'done'
+
             && taskflow_unfinished_blockers($pdo, $taskId) > 0) {
             throw new DomainException('Finish the blocking tasks before marking this task done.');
         }

@@ -915,3 +915,46 @@ a { color: var(--accent); }
 .decision-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:15px;padding-top:13px;border-top:1px solid var(--border,#e5e7eb)}
 @media(max-width:900px){.decision-feed{grid-template-columns:1fr}.decision-filters{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){.decision-panel{padding:13px}.decision-form-grid,.decision-filters{grid-template-columns:1fr}.decision-summary{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.decision-summary>div{padding:12px}.decision-summary strong{font-size:1.35rem}.decision-section-heading>.btn{width:100%}.decision-archived{padding:0!important}.decision-form-actions button{width:100%}}
+
+/* TaskFlow v3: compact personal inbox triage. Tokens also support dark palettes. */
+.inbox-shell { max-width:1120px; margin:0 auto; }
+.inbox-heading { display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:17px; }
+.inbox-heading h2 { margin:4px 0 4px;font-size:24px;font-weight:770;letter-spacing:-.045em;line-height:1.2; }
+.inbox-heading p { margin:0;color:var(--text-dim);font-size:12.5px; }
+.inbox-filters { display:flex;align-items:end;gap:11px;flex-wrap:wrap;padding:13px 14px;background:var(--card-bg);border:1px solid var(--border);border-radius:13px; }
+.inbox-filters label { min-width:156px;display:flex;flex-direction:column;gap:5px;color:var(--text-dim);font-size:11px;font-weight:700; }
+.inbox-filters label:nth-child(2) { flex:1;min-width:230px; }
+.inbox-filters input[type=search],.inbox-filters select { height:39px;border:1px solid var(--border);border-radius:9px;background:var(--card-bg);color:var(--text);padding:9px 11px;font:inherit;font-size:12.5px;min-width:0;width:100%;box-sizing:border-box; }
+.inbox-filters label.inbox-unread-filter { flex-direction:row;align-items:center;gap:8px;min-height:38px;min-width:auto;white-space:nowrap; }
+.inbox-selection-bar { display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 3px 8px;border-bottom:1px solid var(--border); }
+.inbox-selection-bar .inbox-page-select { display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:700;color:var(--text-dim);white-space:nowrap; }
+.inbox-selection-bar #inbox-selected-count { font-size:11px;color:var(--text-faint);font-variant-numeric:tabular-nums;margin-right:auto; }
+.inbox-selection-bar .btn { min-height:30px;padding:6px 10px;font-size:11px; }
+.inbox-list { display:grid;gap:7px;margin:12px 0; }
+.inbox-item { align-items:center;min-width:0;padding:11px 13px;border-radius:11px;gap:11px; }
+.inbox-select-cell { width:20px;display:grid;place-items:center;align-self:center;flex:none; }
+.inbox-select-cell input { width:16px;height:16px;accent-color:var(--accent); }
+.inbox-content-heading { display:flex;align-items:baseline;gap:10px;flex-wrap:wrap; }
+.inbox-content-heading strong { font-size:12.5px;line-height:1.4; }
+.inbox-category { padding:3px 7px;font-size:10px;font-weight:720;background:var(--surface);color:var(--text-dim);border:1px solid var(--border);border-radius:99px; }
+.inbox-item .inbox-content p { margin:4px 0 3px;line-height:1.5;font-size:12px; }
+.inbox-item .inbox-content small { font-size:10.5px;color:var(--text-faint); }
+.inbox-item .btn { align-self:center;min-height:32px;padding:6px 9px;font-size:11px;white-space:nowrap; }
+.inbox-item.unread { border-left:3px solid var(--accent); }
+.inbox-loading { color:var(--text-dim);font-size:12px;padding:20px 4px; }
+#inbox-load-more { display:block;margin:15px auto; }
+#p-copy-list { display:block;width:100%;min-height:42px;padding:9px 12px;border-radius:9px;border:1px solid var(--border);background:var(--card-bg);color:var(--text);margin:8px 0 12px; }
+@media(max-width:650px) {
+ .inbox-shell { width:100%;min-width:0; }
+ .inbox-heading { align-items:flex-start; }
+ .inbox-heading #inbox-mark-all { flex:1 1 100%; }
+ .inbox-filters { padding:10px;gap:9px; }
+ .inbox-filters label,.inbox-filters label:nth-child(2) { flex:1 1 100%;min-width:0; }
+ .inbox-selection-bar { gap:7px; }
+ .inbox-selection-bar .inbox-page-select { flex:0 0 auto; }
+ .inbox-selection-bar #inbox-selected-count { flex:1; }
+ .inbox-selection-bar .btn { flex:1 1 auto; }
+ .inbox-item { display:grid;grid-template-columns:20px 8px minmax(0,1fr);align-items:start;gap:8px;padding:11px; }
+ .inbox-item .inbox-content { grid-column:3;min-width:0; }
+ .inbox-item .btn { grid-column:3;justify-self:start;min-height:30px; }
+}

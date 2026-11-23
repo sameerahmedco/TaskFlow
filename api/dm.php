@@ -10,6 +10,7 @@
  * POST { recipient_id, content }         -> send a message
  */
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/message_hardening.php';
 start_secure_session();
 $me = current_user_record();
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && session_status() === PHP_SESSION_ACTIVE) {
@@ -89,24 +90,44 @@ require_csrf();
 $body = get_json_body();
 
 if ($method === 'POST') {
-    $recipientId = (int) ($body['recipient_id'] ?? 0);
-    if ($recipientId === (int) $me['id']) json_error('You cannot message yourself.');
+    $recipientId = (int)($body['recipient_id'] ?? 0);
+    if ($recipientId === (int)$me['id']) json_error('You cannot message yourself.');
+    if ($recipientId <= 0) json_error('Invalid recipient.', 400);
+    try { $content = taskflow_message_content($body['content'] ?? null); }
+    catch (InvalidArgumentException $e) { json_error($e->getMessage(), 400); }
 
-    $userStmt = $pdo->prepare('SELECT id FROM users WHERE id = ? AND is_active = 1');
-    $userStmt->execute([$recipientId]);
-    if (!$userStmt->fetch()) json_error('That person was not found.', 404);
+    try {
+        $pdo->beginTransaction();
+        taskflow_message_assert_can_send($pdo, (int)$me['id']);
+        $recipient = $pdo->prepare('SELECT id FROM users WHERE id=? AND is_active=1');
+        $recipient->execute([$recipientId]);
+        if (!$recipient->fetchColumn()) throw new DomainException('That person was not found.');
+        $stmt = $pdo->prepare('INSERT INTO direct_messages (sender_id, recipient_id, content) VALUES (?,?,?)');
+        $stmt->execute([(int)$me['id'], $recipientId, $content]);
+        $messageId = (int)$pdo->lastInsertId();
+        $pdo->commit();
+    } catch (OverflowException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        json_error($e->getMessage(), 429);
+    } catch (DomainException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        json_error($e->getMessage(), 404);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('TaskFlow direct message write failed: '.get_class($e));
+        json_error('Could not send direct message.', 500);
+    }
 
-    $content = clean_str($body['content'] ?? '', 1000);
-    if ($content === '') json_error('Message cannot be empty.');
-
-    $stmt = $pdo->prepare('INSERT INTO direct_messages (sender_id, recipient_id, content) VALUES (?,?,?)');
-    $stmt->execute([$me['id'], $recipientId, $content]);
-
-    require_once __DIR__ . '/../includes/mailer.php';
-    $appUrl = app_link();
-    notify('new_message', [$recipientId], "New message from {$me['name']}", "{$me['name']} sent you a message:\n\n$content\n\nOpen TaskFlow: $appUrl");
-
-    json_response(['id' => (int) $pdo->lastInsertId()], 201);
+    // An SMTP or notification outage must never make a persisted DM look
+    // unsent to its author, or trigger a duplicate on retry.
+    try {
+        require_once __DIR__ . '/../includes/mailer.php';
+        notify('new_message', [$recipientId], "New message from {$me['name']}",
+            "{$me['name']} sent you a message:\n\n$content\n\nOpen TaskFlow: " . app_link());
+    } catch (Throwable $e) {
+        error_log('Direct-message notification failed: '.get_class($e));
+    }
+    json_response(['id' => $messageId], 201);
 }
 
 json_error('Method not allowed.', 405);

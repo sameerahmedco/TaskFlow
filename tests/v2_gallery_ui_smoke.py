@@ -27,7 +27,7 @@ with sync_playwright() as pw:
     assert page.locator('.task-table tbody tr').count() >= 1
     page.wait_for_timeout(430)
     paint_brand(page)
-    page.screenshot(path=str(shots/'tasks-v2.png'),full_page=True)
+    page.screenshot(path=str(shots/'tasks-list.png'),full_page=True)
     assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+2')
     # contextual switcher from List to Board and back, no hidden duplicated nav.
     page.locator('[data-v2-tab="board"]').click()

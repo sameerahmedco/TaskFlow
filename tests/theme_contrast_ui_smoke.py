@@ -97,6 +97,7 @@ with sync_playwright() as play:
     login.evaluate("window.fetch=async()=>({ok:false,status:401,json:async()=>({error:'Not authenticated.'})})")
     login.add_script_tag(content=(ROOT/'assets/js/app.js').read_text())
     login.wait_for_selector('#auth-screen:not(.hidden)')
+    login.locator('.auth-theme-disclosure summary').click()
     login.locator('[data-theme-choice="dark"]').click()
     assert login.evaluate('document.documentElement.dataset.theme')=='dark'
     assert login.locator('[data-theme-choice="dark"]').get_attribute('aria-pressed')=='true'

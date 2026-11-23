@@ -14,7 +14,7 @@ exec(compile(source.read_text().split('with sync_playwright() as play:')[0],str(
 CASES=namespace['CASES']
 JS=namespace['JS']
 load_fixture=namespace['load_fixture']
-PALETTES=('ocean','forest','lavender','sunset','midnight')
+PALETTES=('ocean','forest','lavender','sunset','midnight','charcoal','black')
 
 with sync_playwright() as play:
     browser=play.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox'])
@@ -27,7 +27,7 @@ with sync_playwright() as play:
             page.on('pageerror',lambda exc:errors.append(str(exc)))
             load_fixture(fixture,loader,page)
             page.locator('#appearance-preference').select_option(palette)
-            expected='dark' if palette=='midnight' else 'light'
+            expected='dark' if palette in ('midnight','charcoal','black') else 'light'
             assert page.evaluate('document.documentElement.dataset.theme')==expected,(palette,view)
             assert page.evaluate('document.documentElement.dataset.palette')==palette,(palette,view)
             assert page.locator('#appearance-preference').input_value()==palette
@@ -51,7 +51,8 @@ with sync_playwright() as play:
     login.evaluate("window.fetch=async()=>({ok:false,status:401,json:async()=>({error:'Not authenticated.'})})")
     login.add_script_tag(content=(ROOT/'assets/js/app.js').read_text())
     login.wait_for_selector('#auth-screen:not(.hidden)')
-    assert login.locator('[data-theme-choice]').count()==8
+    assert login.locator('[data-theme-choice]').count()==10
+    login.locator('.auth-theme-disclosure summary').click()
     for palette in PALETTES:
         login.locator(f'[data-theme-choice="{palette}"]').click()
         assert login.evaluate('document.documentElement.dataset.palette')==palette
@@ -69,7 +70,9 @@ with sync_playwright() as play:
     narrow.evaluate("window.fetch=async()=>({ok:false,status:401,json:async()=>({error:'Not authenticated.'})})")
     narrow.add_script_tag(content=(ROOT/'assets/js/app.js').read_text())
     narrow.wait_for_selector('#auth-screen:not(.hidden)')
-    for palette in ('light','sunset','midnight'):
+    # The v3 sign-in appearance picker is deliberately collapsed until opened.
+    narrow.locator('.auth-theme-disclosure summary').click()
+    for palette in ('light','sunset','midnight','charcoal','black'):
         narrow.locator(f'[data-theme-choice="{palette}"]').click()
         assert narrow.evaluate('document.documentElement.scrollWidth<=window.innerWidth+2'),f'Overflow on mobile sign-in with {palette}'
         assert narrow.locator(f'[data-theme-choice="{palette}"]').get_attribute('aria-pressed')=='true'
@@ -95,8 +98,8 @@ with sync_playwright() as play:
         page.evaluate('(p)=>localStorage.setItem("taskflow-appearance",p)',palette)
         page.add_script_tag(content=(ROOT/'assets/js/theme-boot.js').read_text())
         assert page.evaluate('document.documentElement.dataset.palette')==palette
-        expected='dark' if palette=='midnight' else 'light'
+        expected='dark' if palette in ('midnight','charcoal','black') else 'light'
         assert page.evaluate('document.documentElement.dataset.theme')==expected
     page.close()
     browser.close()
-    print(f'PASS {checks} additional text contrast checks in five themes; eight sign-in theme buttons; persistent preference; Light default.')
+    print(f'PASS {checks} additional text contrast checks in seven themes; ten sign-in theme buttons; persistent preference; Light default.')

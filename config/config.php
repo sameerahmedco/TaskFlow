@@ -24,6 +24,7 @@ define('REMEMBER_ME_DAYS', 30);
 define('MAX_LOGIN_ATTEMPTS', 5);
 define('LOGIN_LOCKOUT_MINUTES', 15);
 define('APP_INSTALLED', is_file(__DIR__ . '/.installed'));
+require_once __DIR__ . '/../includes/transport_policy.php';
 
 define('APP_NAME', 'TaskFlow');
 date_default_timezone_set('UTC');
@@ -44,22 +45,26 @@ function taskflow_is_https(): bool {
         && strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https';
 }
 function taskflow_is_localhost(): bool {
-    // A local upstream proxy must not silently turn an external HTTP site into
-    // an insecure development exception. The request host must also be local.
     if (!in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1'], true)) return false;
-    $host = strtolower((string) parse_url('http://' . ($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST));
-    return in_array(trim($host, '[]'), ['localhost', '127.0.0.1', '::1'], true);
+    $host = parse_url('http://' . ($_SERVER['HTTP_HOST'] ?? ''), PHP_URL_HOST);
+    return is_string($host) && taskflow_loopback_host($host);
+}
+function taskflow_allow_insecure_request(): bool {
+    return taskflow_allow_local_http(APP_ENV, APP_URL, APP_INSTALLED,
+        in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1'], true),
+        taskflow_is_localhost());
 }
 // Show useful exceptions only on an explicitly local development host.
-if (APP_ENV === 'development' && taskflow_is_localhost()) ini_set('display_errors', '1');
+if (APP_ENV === 'development' && taskflow_allow_insecure_request()) ini_set('display_errors', '1');
 $isHttps = taskflow_is_https();
 session_set_cookie_params([
     'lifetime' => 0, 'path' => '/', 'domain' => '',
-    'secure' => $isHttps || !taskflow_is_localhost(),
+    'secure' => $isHttps || !taskflow_allow_insecure_request(),
     'httponly' => true, 'samesite' => 'Strict',
 ]);
 
 if (!headers_sent() && PHP_SAPI !== 'cli') {
+    header('X-Robots-Tag: noindex, nofollow, noarchive');
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: DENY');
     header('Referrer-Policy: no-referrer');
@@ -67,7 +72,7 @@ if (!headers_sent() && PHP_SAPI !== 'cli') {
     header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
     header('Cache-Control: no-store, private');
     if ($isHttps) header('Strict-Transport-Security: max-age=31536000');
-    if (!$isHttps && !taskflow_is_localhost()) {
+    if (!$isHttps && !taskflow_allow_insecure_request()) {
         http_response_code(403);
         exit('TaskFlow requires HTTPS. Configure TLS or a trusted reverse proxy.');
     }
