@@ -1,5 +1,5 @@
 # TaskFlow v3 optional self-hosted runtime. TLS is terminated at a trusted proxy.
-# The source ZIP still contains docs/tests; the runtime container excludes heavy QA screenshots.
+# The runtime container excludes the source screenshot gallery.
 FROM php:8.3-apache
 RUN apt-get update && apt-get install -y --no-install-recommends libonig-dev \
     && docker-php-ext-install -j"$(nproc)" pdo_mysql mbstring opcache \

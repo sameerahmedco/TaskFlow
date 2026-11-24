@@ -1,190 +1,259 @@
-# TaskFlow v3
+<div align="center">
+  <img src="assets/img/taskflow-logo-192.png" alt="TaskFlow logo" width="88" />
+  <h1>TaskFlow v3</h1>
+  <p><strong>Plan work. Connect your team. Stay in control.</strong></p>
+  <p>A self-hosted workspace for project management, tasks, and team collaboration.</p>
+  <p>
+    <a href="#installation">Get started</a> ·
+    <a href="#product-tour">Product tour</a> ·
+    <a href="docs/SCREENSHOTS.md">All screenshots</a> ·
+    <a href="docs/DEPLOYMENT.md">Deployment guide</a>
+  </p>
+</div>
 
-**A modern, self-hosted workspace for projects, tasks, and teams.** Plan work, manage delivery, and stay aligned in one compact interface, with Light, Charcoal, and Black themes.
+![TaskFlow v3 My Work in the default Light appearance](docs/screenshots/v3-compact-light-home.png)
 
-![TaskFlow v3 compact project and task workspace in the default Light theme](docs/screenshots/v3-compact-light-home.png)
+TaskFlow brings everyday project planning, team conversations, approvals, time tracking, and organization administration into one compact workspace. Install it on your own PHP and MySQL infrastructure and keep control of your organization's data. It is designed for one organization per installation.
 
-**Public-release status:** The feature set is frozen and the source is ready for GitHub review and production-like staging. **Unrestricted public hosting is not yet certified.** Real MySQL 8 integration, HTTPS, backup restoration, ClamAV detection, authenticated cross-team testing, and independent security review are still release gates.
+**Current public version:** v3 · **Default appearance:** Light · **Stack:** PHP, MySQL, JavaScript and CSS · **Hosting:** Self-hosted
 
-[Installation](#install-taskflow-v3) · [Full feature overview](#what-is-included) · [Deployment guide](docs/DEPLOYMENT.md) · [Staging checklist](docs/STAGING-ACCEPTANCE.md) · [Security policy](SECURITY.md)
+## What can you do with TaskFlow?
 
-### Why TaskFlow?
+| Area | What you get |
+| :--- | :--- |
+| Tasks and projects | Personal tasks, lists, Kanban, calendar, timeline, recurring tasks, checklists, dependencies, templates and CSV import |
+| Project planning | Project overview, portfolios, milestones, risks, decisions, updates and weekly goals |
+| Team collaboration | Chat, direct messages, announcements, threaded discussions, mentions, notifications and task reviews |
+| Time and capacity | Timers, worklogs, timesheets, approvals, time reports, workload, leave and holidays |
+| Organization management | Teams, accounts, invitations, role-based access, MFA, recovery and activity history |
+| Workspace appearance | Responsive layouts, compact navigation, Light, Charcoal, Black/OLED and additional palettes |
 
-- **Stay focused:** a compact project rail, task lists, Kanban, calendars, and My Work views.
-- **Work together:** team discussions, task reviews, chat, notifications, decisions, and activity history.
-- **Keep ownership:** a self-hosted, single-organization PHP/MySQL deployment with an explicit installation and upgrade process.
-- **Choose your workspace:** **Light is the default** and GitHub preview screenshots use white backgrounds; Charcoal, Black/OLED, and other color palettes are available.
+[Explore the complete feature list](docs/FEATURES.md).
 
-## Public release readiness
+## Product tour
 
-The source archive is for GitHub review and testing. A separate slim deployment ZIP omits test fixtures and screenshots without removing runtime application functionality. Existing installations must follow the documented migration path; do not replace a populated database with `schema.sql`. Production task attachments require configured, monitored ClamAV or uploads intentionally fail closed. No local unit or mocked-browser run is a substitute for real multi-user MySQL staging.
+See how the main workspace looks in Light mode. Click a screenshot to view it at full resolution.
 
-**Current polish:** Keyboard-accessible task and prompt dialogs now trap/restore focus, reject stale task responses, and retain edited form contents on errors. Unexpected successful HTTP responses are not silently accepted, and session expiry cleanly returns users to sign-in. [Release QA details](docs/RELEASE-PUBLIC.md) · [Earlier hardening history](docs/RELEASE-HARDENING-HISTORY.md).
+| Task list | Kanban board |
+| :--- | :--- |
+| [![Task list screenshot](docs/screenshots/current-tasks-list.png)](docs/screenshots/current-tasks-list.png)<br>Manage task rows, status, priority and assignments. | [![Kanban board screenshot](docs/screenshots/v3-board-light.png)](docs/screenshots/v3-board-light.png)<br>Visualize tasks across status columns. |
 
----
+| Project overview | Calendar |
+| :--- | :--- |
+| [![Project overview screenshot](docs/screenshots/project-overview.png)](docs/screenshots/project-overview.png)<br>See progress, risks and project context. | [![Calendar screenshot](docs/screenshots/calendar.png)](docs/screenshots/calendar.png)<br>View scheduled work and due dates. |
 
-## Task reviews: submit, approve, or request changes
+| Task details | Task reviews |
+| :--- | :--- |
+| [![Task details screenshot](docs/screenshots/v3-task-details-light.png)](docs/screenshots/v3-task-details-light.png)<br>Review and edit the task without leaving the workspace. | [![Task reviews screenshot](docs/screenshots/v3-task-reviews-light.png)](docs/screenshots/v3-task-reviews-light.png)<br>Request feedback and manage review decisions. |
 
-![TaskFlow v3 manager review queue in the default white Light theme](docs/screenshots/v3-task-reviews-light.png)
+| Team chat | Workload planner |
+| :--- | :--- |
+| [![Team chat screenshot](docs/screenshots/current-team-chat.png)](docs/screenshots/current-team-chat.png)<br>Discuss work in team channels. | [![Workload planner screenshot](docs/screenshots/workload.png)](docs/screenshots/workload.png)<br>Plan team capacity. |
 
-**Task Review Queue** adds a structured handoff to the existing Review status. A task creator or assignee can request review with an optional note; active team managers and administrators can **approve** or **request changes** with required feedback. Approving marks the task complete after checking its blockers, including recurring-task completion behavior. Returning it moves the task to In progress, ready for another submission. Reviewers cannot approve their own requests.
+### Explore every workspace area
 
-- **Personal and team queues:** team managers see pending work and history, while members see only requests they submitted. Search by status, load 25 results at a time, and open the task directly from the queue.
-- **Review history:** the task detail panel shows the current decision, requester note, reviewer feedback and the 15 latest decision events.
-- **Notifications:** active same-team managers are notified about new requests; the original submitter receives an Inbox notification on a decision.
-- **Completion guard:** a pending review cannot be bypassed through Task Details or bulk status updates. Only the manager review endpoint approves completion. Manager self-review is forbidden.
-- **Security:** team-scoped reads and writes, CSRF, optimistic version checks, task row locks, a single current request per task, and append-only event history.
+The sections below contain screenshots for all primary application destinations, along with setup, task workflows, mobile layouts, and themes. You can also browse the [complete screenshot gallery](docs/SCREENSHOTS.md) on a separate page.
 
-[Black / OLED preview](docs/screenshots/v3-task-reviews-black.png) · [Mobile Charcoal preview](docs/screenshots/v3-task-reviews-mobile.png)
+<details>
+<summary><strong>Work and task management (9 more screenshots)</strong></summary>
 
-**Upgrade from the immediately preceding v3 Discussions source:** Back up and restore-test MySQL 8, then apply **`docs/migrations/v3-task-reviews.sql` exactly once before deploying this source**. This is an additive two-table migration; existing tasks, comments, approvals, and histories are preserved. Fresh installs use the included `schema.sql`. If coming from older v3 code, apply `v3-discussions.sql` first. Keep the public release label **TaskFlow v3** without any internal version suffix. [Upgrade guide](docs/UPGRADE.md).
+| Find tasks | Saved searches |
+| :--- | :--- |
+| [![Find tasks screenshot](docs/screenshots/current-search.png)](docs/screenshots/current-search.png)<br>Search and filter work across project lists. | [![Saved searches screenshot](docs/screenshots/saved-searches.png)](docs/screenshots/saved-searches.png)<br>Reuse personal search filters. |
 
-## Better task discussions and replies
+| Task checklists | Task attachments |
+| :--- | :--- |
+| [![Task checklists screenshot](docs/screenshots/v3-task-checklist-light.png)](docs/screenshots/v3-task-checklist-light.png)<br>Track individual steps. | [![Task attachments screenshot](docs/screenshots/task-files.png)](docs/screenshots/task-files.png)<br>Manage private task files. |
 
-Task discussions now have **threaded replies**, **inline editing for the original author**, and a **Mention teammate** picker. A reply stays visually connected to its parent discussion, and edited messages are labeled. Use **Ctrl/⌘ + Enter** to post. Messages can be up to 3,000 UTF-8 bytes and may mention up to 10 active teammates from the task's team. The picker disambiguates identical display names using an ID-backed token. Mention lookup is capped at 500 active team members; ordinary comments still work in larger teams. New mentions and active reply authors can receive existing TaskFlow notifications, without sending duplicate task-watcher alerts. Managers may moderate (delete) comments but cannot silently edit someone else's words. Posting is limited to 100 comments per author per hour.
+| Task worklog | Bulk planning |
+| :--- | :--- |
+| [![Task worklog screenshot](docs/screenshots/task-worklog.png)](docs/screenshots/task-worklog.png)<br>Record time against a task. | [![Bulk planning screenshot](docs/screenshots/v3-bulk-planning-light.png)](docs/screenshots/v3-bulk-planning-light.png)<br>Update selected tasks together. |
 
-Discussion history is **paged**, showing the latest 60 comments initially with **Load earlier comments** for older messages (40 per page), instead of an unbounded task-detail request. All team checks, author-only edits, CSRF protection and optimistic edit versions are enforced on the server; deleted parent comments leave their replies intact.
+| CSV import | Task templates |
+| :--- | :--- |
+| [![CSV import screenshot](docs/screenshots/task-csv-import.png)](docs/screenshots/task-csv-import.png)<br>Import tasks into a project. | [![Task templates screenshot](docs/screenshots/templates.png)](docs/screenshots/templates.png)<br>Reuse repeatable task structures. |
 
-| Discussions · Light | Discussion · Black / OLED |
-| --- | --- |
-| ![TaskFlow v3 threaded comments in the white Light appearance](docs/screenshots/v3-discussions-light.png) | [Open dark preview](docs/screenshots/v3-discussions-black.png) |
+| Quick navigation |   |
+| :--- | :--- |
+| [![Quick navigation screenshot](docs/screenshots/page-switcher.png)](docs/screenshots/page-switcher.png)<br>Jump between workspace destinations. |   |
 
-[Mobile discussion preview](docs/screenshots/v3-discussions-mobile.png)
+</details>
 
-**Upgrade from a v3 build without discussion support:** That earlier update **requires a separate additive MySQL migration**: `docs/migrations/v3-discussions.sql`. Back up and restore-test your database, apply the migration **once** on MySQL 8 staging, then deploy the new files. Existing comments and mentions are preserved. All historical migration filenames and the **TaskFlow v3** public name stay unchanged. See [Upgrade instructions](docs/UPGRADE.md).
+<details>
+<summary><strong>Project planning and delivery (9 more screenshots)</strong></summary>
 
-## Task details, without endless scrolling
+| Project portfolio | Project timeline |
+| :--- | :--- |
+| [![Project portfolio screenshot](docs/screenshots/portfolio.png)](docs/screenshots/portfolio.png)<br>Compare delivery status across projects. | [![Project timeline screenshot](docs/screenshots/timeline.png)](docs/screenshots/timeline.png)<br>Visualize scheduled tasks and milestones. |
 
-Task details now use **four compact tabs**—**Details**, **Checklist**, **Files & activity**, and **Discussion**—instead of stacking every control into one long editor. Existing field updates, task attachments, dependencies, worklogs, watchers and comments remain available under their respective tabs. Saving a checklist step keeps the Checklist tab open.
+| Milestones | Monthly plan |
+| :--- | :--- |
+| [![Milestones screenshot](docs/screenshots/milestones.png)](docs/screenshots/milestones.png)<br>Track key delivery targets. | [![Monthly plan screenshot](docs/screenshots/current-monthly-plan.png)](docs/screenshots/current-monthly-plan.png)<br>Review current and upcoming weeks. |
 
-Checklist editing is faster and easier to review:
+| Weekly goals | Team insights |
+| :--- | :--- |
+| [![Weekly goals screenshot](docs/screenshots/current-weekly-goals.png)](docs/screenshots/current-weekly-goals.png)<br>Set individual goals and review team priorities. | [![Team insights screenshot](docs/screenshots/current-team-insights.png)](docs/screenshots/current-team-insights.png)<br>See completion progress by teammate. |
 
-- **Paste multiple steps:** add up to 30 steps at once, one per line, in a single transaction. Each task supports up to 200 checklist steps.
-- **Inline editing:** rename or remove a step without leaving task details.
-- **Move steps up/down:** reorder with accessible buttons; a stale or incomplete sequence is rejected rather than overwriting someone else's changes.
-- **Progress at a glance:** a count and progress bar update as steps are completed. People without task-edit permissions see the same checklist read-only.
+| Project risks | Project decisions |
+| :--- | :--- |
+| [![Project risks screenshot](docs/screenshots/project-risks.png)](docs/screenshots/project-risks.png)<br>Track risks and mitigation plans. | [![Project decisions screenshot](docs/screenshots/project-decisions.png)](docs/screenshots/project-decisions.png)<br>Record decisions and ownership. |
 
-[Task Checklist · Light](docs/screenshots/v3-task-checklist-light.png) · [Task Details · Light](docs/screenshots/v3-task-details-light.png) · [Black / OLED](docs/screenshots/v3-task-checklist-black.png) · [Mobile](docs/screenshots/v3-task-checklist-mobile.png)
+| Project updates |   |
+| :--- | :--- |
+| [![Project updates screenshot](docs/screenshots/project-updates.png)](docs/screenshots/project-updates.png)<br>Share progress and next steps. |   |
 
-**Checklist compatibility:** The earlier checklist update reuses existing checklist tables and the task-detail API. It requires **no SQL migration**, new background job or internal version number. Existing task permission checks still apply. The main README screenshots remain Light with white backgrounds; dark screenshots are optional previews.
+</details>
 
-## Compact daily workspace
+<details>
+<summary><strong>Communication and collaboration (6 more screenshots)</strong></summary>
 
-![TaskFlow v3 compact task-first Home, default white Light appearance](docs/screenshots/workspace.png)
+| Inbox | Threaded discussions |
+| :--- | :--- |
+| [![Inbox screenshot](docs/screenshots/v3-inbox-triage-light.png)](docs/screenshots/v3-inbox-triage-light.png)<br>Review notifications and mark them read or unread. | [![Threaded discussions screenshot](docs/screenshots/v3-discussions-light.png)](docs/screenshots/v3-discussions-light.png)<br>Reply to task discussions and mention teammates. |
 
-The Home screen is a **full-width task queue** rather than a dashboard of duplicate shortcuts. Each row aligns **task, project, status, priority and due date**. Quick filters include **Open tasks** (one-tap reset), Overdue, Today, Next 7 days, and Starred. The loaded-task summary is explicit about its scope, and switching filters ignores stale network responses.
+| Team announcements | Direct messages |
+| :--- | :--- |
+| [![Team announcements screenshot](docs/screenshots/announcements.png)](docs/screenshots/announcements.png)<br>Publish notices and collect acknowledgments. | [![Direct messages screenshot](docs/screenshots/current-direct-messages.png)](docs/screenshots/current-direct-messages.png)<br>Have one-to-one conversations. |
 
-The slimmer sidebar keeps Home, Projects, Board, Calendar and Inbox handy. Teams with more than eight projects can **search or expand the complete project list in place**. Board, List and detail views use tighter spacing, while mobile keeps status and priority visible. **Compact is now the default density** on new browser installations; people who previously selected Comfortable retain their preference.
+| People | Team activity |
+| :--- | :--- |
+| [![People screenshot](docs/screenshots/current-people.png)](docs/screenshots/current-people.png)<br>View the team directory. | [![Team activity screenshot](docs/screenshots/current-team-activity.png)](docs/screenshots/current-team-activity.png)<br>Review changes and activity history. |
 
-| Project List · Light | Kanban Board · Light |
-| --- | --- |
-| ![TaskFlow v3 project task list, white/light background](docs/screenshots/tasks-list.png) | ![TaskFlow v3 Kanban board, white/light background](docs/screenshots/board.png) |
+</details>
 
-| Decisions · Light | Risks · Light |
-| --- | --- |
-| ![TaskFlow v3 project decisions, white/light background](docs/screenshots/project-decisions.png) | ![TaskFlow v3 risk management, white/light background](docs/screenshots/project-risks.png) |
+<details>
+<summary><strong>Time and team capacity (8 more screenshots)</strong></summary>
 
-### Faster task management
+| Time reports | Weekly timesheet |
+| :--- | :--- |
+| [![Time reports screenshot](docs/screenshots/time-reports.png)](docs/screenshots/time-reports.png)<br>Review logged hours. | [![Weekly timesheet screenshot](docs/screenshots/timesheet.png)](docs/screenshots/timesheet.png)<br>Track and submit time by week. |
 
-Project List supports **batch changes for up to 50 editable tasks**. Select rows individually, Shift-click to select a range, or choose the entire visible page. The action menu is now grouped into **Progress**, **Schedule**, **Planning**, **Labels**, and (for managers) **People**, so related actions are easier to locate.
+| Timesheet approvals | Time off |
+| :--- | :--- |
+| [![Timesheet approvals screenshot](docs/screenshots/approvals.png)](docs/screenshots/approvals.png)<br>Review submitted timesheets. | [![Time off screenshot](docs/screenshots/time-off.png)](docs/screenshots/time-off.png)<br>Request leave and review requests. |
 
-Batch actions include **Status**, **Priority**, **Set/Clear start date**, **Set/Clear due date**, **Set/Clear estimated effort (minutes)**, and **Add/Remove label**. Managers and administrators can also **Add/Remove assignee** for an active colleague in the same team. Label changes preserve all other existing labels; repeated additions cannot create duplicates. An estimate may be 1–24,000 minutes, or cleared entirely.
+| Team availability | Leave balances |
+| :--- | :--- |
+| [![Team availability screenshot](docs/screenshots/availability.png)](docs/screenshots/availability.png)<br>Review absences on the team calendar. | [![Leave balances screenshot](docs/screenshots/leave-balances.png)](docs/screenshots/leave-balances.png)<br>View annual leave allowances and balances. |
 
-Each batch is revalidated on the server for team and task-editing permissions. Start and due dates cannot cross; labels must belong to the selected team; the 100-label-per-task cap and existing task-dependency rules remain in force. All changes and their audit event commit in one transaction or roll back together. Failed batches keep the selection checked so you can correct the input and retry. **No new database migration is required.**
+| Team holidays | Coverage |
+| :--- | :--- |
+| [![Team holidays screenshot](docs/screenshots/holidays.png)](docs/screenshots/holidays.png)<br>Maintain the shared holiday calendar. | [![Coverage screenshot](docs/screenshots/coverage.png)](docs/screenshots/coverage.png)<br>Review team coverage alongside leave. |
 
-[Light preview of planning and labels](docs/screenshots/v3-bulk-planning-light.png) · [Black / OLED preview](docs/screenshots/v3-bulk-planning-black.png) · [Mobile preview](docs/screenshots/v3-bulk-planning-mobile.png)
+</details>
 
+<details>
+<summary><strong>Organization and administration (8 more screenshots)</strong></summary>
 
-### Personal inbox triage and cross-project task copies
+| Organization overview | Teams |
+| :--- | :--- |
+| [![Organization overview screenshot](docs/screenshots/current-organization-overview.png)](docs/screenshots/current-organization-overview.png)<br>View overall and per-team progress. | [![Teams screenshot](docs/screenshots/current-teams.png)](docs/screenshots/current-teams.png)<br>Manage teams and their managers. |
 
-![TaskFlow v3 personal notification inbox with search, category filters and selection in the default Light theme](docs/screenshots/v3-inbox-triage-light.png)
+| Accounts | Invitations |
+| :--- | :--- |
+| [![Accounts screenshot](docs/screenshots/current-accounts.png)](docs/screenshots/current-accounts.png)<br>Manage user roles and account status. | [![Invitations screenshot](docs/screenshots/invitations.png)](docs/screenshots/invitations.png)<br>Review account invitations. |
 
-**Inbox** has become a compact notification-management workspace. Filter activity by **Tasks & updates**, **Messages**, or **Mentions**, search notification titles and bodies, or show only unread items. Select up to **25 notifications** across the loaded results and mark them read or unread together; failed batches keep the selection intact. Individual notifications can also be marked unread again. Your existing "Mark latest 500 read" shortcut remains available. Inbox filters and batch actions affect **only the signed-in user's own notifications**.
+| Organization audit | Organization settings |
+| :--- | :--- |
+| [![Organization audit screenshot](docs/screenshots/current-organization-audit.png)](docs/screenshots/current-organization-audit.png)<br>Filter and export organization activity. | [![Organization settings screenshot](docs/screenshots/current-settings.png)](docs/screenshots/current-settings.png)<br>Configure organization and mail preferences. |
 
-**Copy task to project** is available from task details when your team has multiple projects. Choose another project in the same team to create a fresh "To do" copy containing its title, description, effort estimate, checklist (up to 200 items, reset to incomplete), and same-team labels. **Dates, assignees, comments, dependencies, subtasks, recurring settings and history do not transfer.** The original one-click Duplicate task action is unchanged. Server validation rejects other-team destinations even for administrators, and the copy and audit event use one transaction.
+| My account | Account security |
+| :--- | :--- |
+| [![My account screenshot](docs/screenshots/current-my-account.png)](docs/screenshots/current-my-account.png)<br>Manage personal email and notification preferences. | [![Account security screenshot](docs/screenshots/current-account-security.png)](docs/screenshots/current-account-security.png)<br>Manage MFA and remembered sessions. |
 
-[Light copy-dialog preview](docs/screenshots/v3-copy-to-project-light.png) · [Charcoal inbox](docs/screenshots/v3-inbox-triage-charcoal.png) · [Black / OLED inbox](docs/screenshots/v3-inbox-triage-black.png) · [Mobile inbox](docs/screenshots/v3-inbox-triage-mobile.png)
+</details>
 
-**Compatibility for this earlier Inbox update:** No new database tables or migration was needed at that stage. These features use the existing task, team/project, checklist, labels and notification tables; all historical migration filenames stay unchanged.
+<details>
+<summary><strong>Installation and access (4 more screenshots)</strong></summary>
 
-### Expandable left navigation
+| First-time setup | Sign in |
+| :--- | :--- |
+| [![First-time setup screenshot](docs/screenshots/setup.png)](docs/screenshots/setup.png)<br>Configure a new TaskFlow installation. | [![Sign in screenshot](docs/screenshots/sign-in.png)](docs/screenshots/sign-in.png)<br>Access an existing workspace. |
 
-![TaskFlow v3 Light theme with nested Board submenu, project shortcuts, and compact Kanban view](docs/screenshots/v3-submenus-light.png)
+| Accept invitation | Password recovery |
+| :--- | :--- |
+| [![Accept invitation screenshot](docs/screenshots/invite-accept.png)](docs/screenshots/invite-accept.png)<br>Join an organization through an invitation. | [![Password recovery screenshot](docs/screenshots/password-recovery.png)](docs/screenshots/password-recovery.png)<br>Recover access to an existing account. |
 
-The five everyday sidebar items each have a **separate expandable chevron**. Click a menu name to open its main page; click the chevron to reveal related tools without leaving the current screen. **My Projects** groups Overview, Task List, Portfolio, Timeline, Milestones, Risks, Decisions and Updates. Calendar and Inbox expose their related planning and team tools in the same way. Projects also have their own submenus for jumping straight into that project's List, Board, Timeline, Risks or Decisions. Submenus are accessible by keyboard and only one main section opens at a time.
+</details>
 
-For fast task triage, editable status and priority fields can be changed directly in Home or Project List; a rejected change reverts to its previous value. **Focus mode** hides the desktop sidebar temporarily and can be turned off again at any time, while global page search remains available.
+<details>
+<summary><strong>Appearance and mobile (8 more screenshots)</strong></summary>
 
-[Per-project submenu · Light](docs/screenshots/v3-project-submenu-light.png) · [Charcoal submenu preview](docs/screenshots/v3-submenus-charcoal.png) · [Black / OLED submenu preview](docs/screenshots/v3-submenus-black.png) · [Mobile submenu preview](docs/screenshots/v3-submenus-mobile.png)
+| Charcoal | Black / OLED |
+| :--- | :--- |
+| [![Charcoal screenshot](docs/screenshots/v3-compact-charcoal-home.png)](docs/screenshots/v3-compact-charcoal-home.png)<br>Compact workspace in Charcoal. | [![Black / OLED screenshot](docs/screenshots/v3-compact-black-home.png)](docs/screenshots/v3-compact-black-home.png)<br>Compact workspace in Black. |
 
-The everyday sidebar now highlights **Home, Projects, Board, Calendar, and Inbox**. A project list lets you jump directly into tasks; related List, Board, Calendar and Timeline tabs appear in context. The rest of the tools remain available under **Explore all tools**, or through the page switcher (`Ctrl/Cmd + Shift + K`). No features were intentionally removed.
+| Additional color palettes | Mobile workspace |
+| :--- | :--- |
+| [![Additional color palettes screenshot](docs/screenshots/theme-collection.png)](docs/screenshots/theme-collection.png)<br>Examples of the other appearance options. | [![Mobile workspace screenshot](docs/screenshots/v3-compact-mobile-home.png)](docs/screenshots/v3-compact-mobile-home.png)<br>My Work on a narrow screen. |
 
-## Appearance
+| Mobile navigation | Mobile task details |
+| :--- | :--- |
+| [![Mobile navigation screenshot](docs/screenshots/v3-submenus-mobile.png)](docs/screenshots/v3-submenus-mobile.png)<br>Nested navigation on mobile. | [![Mobile task details screenshot](docs/screenshots/v3-task-checklist-mobile.png)](docs/screenshots/v3-task-checklist-mobile.png)<br>Task checklist on a phone. |
 
-**Light is the default.** Ten choices are included: **Light, Dark, System, Ocean, Forest, Lavender, Sunset, Midnight, Charcoal, and Black / OLED**. Charcoal is a neutral graphite appearance; Black uses a genuinely black main canvas suitable for OLED screens. Theme colors are applied to cards, text, forms, tables, menus and navigation. Your preference is stored locally in the browser.
+| Mobile discussions | Mobile task reviews |
+| :--- | :--- |
+| [![Mobile discussions screenshot](docs/screenshots/v3-discussions-mobile.png)](docs/screenshots/v3-discussions-mobile.png)<br>Threaded discussion on mobile. | [![Mobile task reviews screenshot](docs/screenshots/v3-task-reviews-mobile.png)](docs/screenshots/v3-task-reviews-mobile.png)<br>Review queue on mobile. |
 
-[View compact Black / OLED workspace](docs/screenshots/v3-compact-black-home.png)
+</details>
 
-[Compact Charcoal workspace](docs/screenshots/v3-compact-charcoal-home.png) · [Black board](docs/screenshots/v3-black-board.png) · [Charcoal board](docs/screenshots/v3-charcoal-board.png) · [Mobile board · Light](docs/screenshots/mobile-board.png)
+> Screenshots show the application UI using illustrative sample organizations, accounts and tasks. The collection includes previously supplied captures and additional captures from the cleaned v3 source with simulated API responses; it is not a live hosted demo. Light is the default appearance.
 
-**GitHub default screenshots remain in the Light theme with white backgrounds.** The Black and Charcoal previews above are optional references and are not the default UI.
+## Installation
 
-## What is included
+### Requirements
 
-- **Project work:** task lists, Kanban, calendars, timeline, project overview, portfolio, task templates, subtasks, dependencies, recurring tasks, milestones and saved searches.
-- **Team collaboration:** comments, watchers, chat, announcements, read receipts, decisions, risks, updates, notifications and activity history.
-- **Planning and reporting:** priorities, weekly goals, workload, worklogs, timers, time reports, timesheets and approvals, availability, holidays and leave management.
-- **Task import:** preview and import up to **50 tasks** per CSV file, with strict row validation and a single database transaction, or download a template.
-- **Administration:** organization setup, team/member roles, invitations, account recovery, MFA, secure sessions, audit exports, private attachments and CLI maintenance tools.
+- PHP 8.3 or newer with `pdo_mysql`, `mbstring`, `openssl`, `sodium`, and `fileinfo`.
+- MySQL 8 or newer with InnoDB; Apache or Nginx with PHP-FPM.
+- A dedicated database, a dedicated hostname, and HTTPS for a hosted workspace.
+- Private storage and a local ClamAV daemon if you enable task attachments.
 
-## Install TaskFlow v3
+No Node.js, Composer, or JavaScript build step is needed to run the application.
 
-**Requirements:** PHP 8.3+ with `pdo_mysql`, `mbstring`, `openssl`, `sodium`, `fileinfo`; MySQL 8+; and HTTPS.
+### Quick start
 
-1. Create an empty database and a least-privilege database user.
-2. Copy repository files to a secure PHP web host; protect `config/`, `includes/`, and `bin/` from public HTTP access.
-3. Run `php bin/setup-key.php` to create the first-install setup key.
-4. Visit `/install/` and complete the organization and first administrator setup.
-5. Preserve the generated application key and install lock securely. Enable MFA for administrator accounts.
+1. Download or clone the repository:
 
-[Deployment and hardening](docs/DEPLOYMENT.md) · [Full features](docs/FEATURES.md) · [Security](SECURITY.md)
+   ```bash
+   git clone https://github.com/sameerahmedco/TaskFlow.git
+   cd TaskFlow
+   ```
 
-## Upgrade an existing v1 or v2 installation
+2. Create a new, empty MySQL database and dedicated database user. Do not import `schema.sql` manually when using the installer.
+3. Copy the application to your configured web root. Enable HTTPS and the private-path protections described in the [deployment guide](docs/DEPLOYMENT.md). The PHP worker needs temporary write access to `config/` during setup.
+4. From the application directory, generate a one-time setup key as the PHP service account (replace `www-data` if necessary):
 
-**Upgrading from the latest v2:** Back up the database, application key, configuration, installation lock and private files. Deploy v3 only after applying `docs/migrations/v3-discussions.sql` and `docs/migrations/v3-task-reviews.sql` **in that order** on a restore-tested staging copy. Earlier v3 UI and CSV features reused existing tables, but the newer discussion and review workflows require these additive migrations.
+   ```bash
+   sudo -u www-data php bin/setup-key.php
+   ```
 
-**Upgrading from older v1 installs:** Apply any missing migration files under [`docs/migrations/`](docs/migrations/) in order on a restore-tested staging database first. Existing migration filenames have deliberately not been renamed; renaming them could break upgrades.
+5. Visit `https://your-domain/install/`, enter the setup key and database details, and create your organization and first administrator. The wizard creates the schema and locks installation.
+6. Sign in, enable administrator MFA, preserve the private configuration and installation lock, and verify your installation with the [deployment checklist](docs/DEPLOYMENT.md#before-opening-public-access).
 
-[Upgrade guide](docs/UPGRADE.md) · [v1 history](docs/history/v1/CHANGELOG-v1.md) · [v2 history](docs/history/v2/CHANGELOG-v2.md)
+![TaskFlow first-time setup wizard](docs/screenshots/setup.png)
 
-## Quality checks
+**Already using TaskFlow?** Do not run the installer or fresh schema on an existing database. Back up your data, private files, application key and configuration, then apply only missing migrations according to the [upgrade guide](docs/UPGRADE.md).
 
-```bash
-find . -type f -name '*.php' -print0 | xargs -0 -n1 php -l
-node --check assets/js/app.js
-node --check assets/js/workspace.js
-node --check assets/js/theme-boot.js
-php tests/task_import_unit.php
-php tests/bulk_actions_unit.php
-php tests/checklist_actions_unit.php
-php tests/security_static.php
-python3 tests/design_ui_smoke.py
-python3 tests/v3_charcoal_black_ui_smoke.py
-python3 tests/v3_project_rail_ui_smoke.py
-python3 tests/v3_compact_ui_smoke.py
-python3 tests/v3_submenus_ui_smoke.py
-python3 tests/v3_quick_edit_ui_smoke.py
-python3 tests/v3_task_detail_ui_smoke.py
-python3 tests/v3_bulk_actions_ui_smoke.py
-python3 tests/readme_screenshots_unit.py
-```
+The included Dockerfile is an optional PHP/Apache starting point. It requires a separate MySQL server, private persistent configuration, and a trusted TLS edge; see the deployment guide.
 
-Browser checks require Playwright and Chromium. MySQL integration and authenticated end-to-end security testing must pass in staging before production rollout; mocked browser tests are not security certification.
+## Documentation
 
-## Publish to GitHub
+| Guide | Description |
+| :--- | :--- |
+| [Screenshot gallery](docs/SCREENSHOTS.md) | Full visual tour of the application |
+| [Features](docs/FEATURES.md) | Product capabilities and available views |
+| [Deployment](docs/DEPLOYMENT.md) | Setup, server configuration, attachments, scheduled jobs and verification |
+| [Upgrade](docs/UPGRADE.md) | Database migration and backup instructions |
+| [Administrator MFA](docs/ADMIN-MFA.md) | Account security configuration |
+| [Security](SECURITY.md) | Security model and vulnerability reporting guidance |
+| [Release notes](CHANGELOG.md) | What is included in TaskFlow v3 |
 
-Target repository: [sameerahmedco/taskflow](https://github.com/sameerahmedco/taskflow). The GitHub-ready source ZIP is **flat** (README and folders at its root). Publish from a `release/v3` branch through a reviewed pull request, not a force push.
+## Support and security
 
-[GitHub publishing guide](docs/GITHUB-PUBLISH.md) · [v3 release notes](docs/RELEASE-v3.md) · [Test report](docs/TEST-RESULTS.md)
+Use [GitHub Issues](https://github.com/sameerahmedco/TaskFlow/issues) for non-sensitive bug reports. Do not post passwords, configuration files, tokens, or private organizational data. For vulnerabilities, follow the [security policy](SECURITY.md).
 
-**License:** No license is included by default. Choose one explicitly before promoting public use or outside contributions.
+TaskFlow v3 is a feature-frozen source distribution. The repository does not include development tests or internal QA reports. Public source availability does not certify a production installation; validate your actual MySQL, HTTPS, backups, permissions, and attachment scanning before hosting it for real users.
+
+## License
+
+No source license has been supplied by the maintainer. Publicly visible source code is not a grant of open-source or redistribution rights. Refer to the repository owner for licensing and usage permission.

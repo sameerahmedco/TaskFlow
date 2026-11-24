@@ -44,9 +44,11 @@ $record('apache_rules', is_file($root.'/.htaccess')
     'Apache source-file denial rules present.');
 $record('nginx_example', is_file($root.'/docs/deployment/nginx-taskflow.conf.example'),
     'Secure Nginx deployment example included.');
-$record('source_secrets', !is_file($root.'/config/config.local.php') && !is_file($root.'/config/.installed')
-    && !is_file($root.'/config/.setup-key'),
-    'No local production secrets or installer locks included in distributable source.');
+if ($source) {
+    $record('source_secrets', !is_file($root.'/config/config.local.php') && !is_file($root.'/config/.installed')
+        && !is_file($root.'/config/.setup-key'),
+        'No local production secrets or installer locks included in distributable source.');
+}
 
 if (!$source) {
     require_once $root.'/config/config.php';

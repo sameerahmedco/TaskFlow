@@ -27,7 +27,7 @@ server {
 
     # These paths may contain source, setup material, screenshots, history or secrets.
     # The location must appear BEFORE the general PHP handler below.
-    location ~* ^/(?:config|includes|bin|tests|docs|\.git|\.github)(?:/|$) {
+    location ~* ^/(?:config|includes|bin|tests|docs|dist|\.git|\.github)(?:/|$) {
         return 404;
     }
     location ~* (^|/)\. { return 404; }

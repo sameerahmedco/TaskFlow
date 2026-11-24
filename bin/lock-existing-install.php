@@ -14,7 +14,7 @@ try {
     $pdo->query('SELECT auth_version FROM users LIMIT 1');
     $pdo->query('SELECT organization_name FROM app_settings LIMIT 1');
 } catch (Throwable $e) {
-    fwrite(STDERR, "Migration missing or database invalid. Follow docs/UPGRADE.md and apply only missing preview migrations.\n");
+    fwrite(STDERR, "Migration missing or database invalid. Follow docs/UPGRADE.md and apply only missing migrations.\n");
     exit(1);
 }
 if ($adminCount < 1) { fwrite(STDERR, "No active administrator found; refusing to lock incomplete install.\n"); exit(1); }

@@ -16,30 +16,23 @@ ROOT = Path(__file__).resolve().parent.parent
 PUBLIC_VERSION = "v3"
 SECRET_NAMES = {".env", ".env.local", ".installed", ".setup-key", "config.local.php", "id_rsa", "id_ed25519"}
 FORBIDDEN_SUFFIXES = {".pyc", ".log", ".swp", ".sqlite", ".sqlite3", ".db", ".pem", ".key", ".p12", ".pfx"}
-SKIP_DIRS = {".git", "dist", "__pycache__", ".pytest_cache", "node_modules", "vendor", ".venv", "venv"}
-RUNTIME_SKIP_DIRS = {"tests", ".github"}
-RUNTIME_EXACT = {"README.md", "SECURITY.md", "CHANGELOG.md", "Dockerfile", ".dockerignore", ".gitignore", ".gitattributes", "bin/build-release.py"}
+SKIP_DIRS = {".git", ".github", "dist", "__pycache__", ".pytest_cache", "node_modules", "vendor", ".venv", "venv", "tests"}
+RUNTIME_SKIP_DIRS = {"screenshots"}
+RUNTIME_EXACT = {"README.md", "bin/build-release.py"}
 RUNTIME_DOCS_KEEP = {
-    "docs/UPGRADE.md", "docs/DEPLOYMENT.md", "docs/RELEASE-v3.md", "docs/RELEASE-CHECKLIST.md", "docs/RELEASE-PUBLIC.md",
-    "docs/STAGING-ACCEPTANCE.md",
-    "docs/deployment/nginx-taskflow.conf.example",
-    "docs/deployment/clamav-attachment-scanning.md",
-}
-REQUIRED_SOURCE = {
-    "VERSION", "README.md", "index.php", "schema.sql", ".htaccess", "bin/release-preflight.php",
-    "api/task.php", "api/task_reviews.php", "config/config.php", "config/config.local.php.example",
-    "includes/transport_policy.php", "includes/remember_cookie.php", "includes/attachment_scan.php",
-    "docs/migrations/v3-discussions.sql", "docs/migrations/v3-task-reviews.sql", ".github/workflows/ci.yml",
-    "docs/STAGING-ACCEPTANCE.md", "docs/deployment/clamav-attachment-scanning.md",
-    "tests/mysql_http_seed.php", "tests/authenticated_http_smoke.py",
+    "docs/.htaccess", "docs/UPGRADE.md", "docs/DEPLOYMENT.md", "docs/FEATURES.md", "docs/ADMIN-MFA.md",
+    "docs/deployment/nginx-taskflow.conf.example", "docs/deployment/clamav-attachment-scanning.md",
 }
 REQUIRED_RUNTIME = {
-    "VERSION", "index.php", "schema.sql", ".htaccess", "bin/release-preflight.php",
+    "VERSION", "index.php", "schema.sql", ".htaccess", "bin/release-preflight.php", "bin/setup-key.php",
     "api/task.php", "api/task_reviews.php", "config/config.php", "config/config.local.php.example",
-    "includes/transport_policy.php", "includes/remember_cookie.php", "includes/attachment_scan.php",
+    "install/index.php", "includes/transport_policy.php", "includes/remember_cookie.php",
+    "includes/attachment_scan.php", "includes/account_admin.php", "docs/.htaccess",
     "docs/migrations/v3-discussions.sql", "docs/migrations/v3-task-reviews.sql",
-    "docs/STAGING-ACCEPTANCE.md", "docs/deployment/clamav-attachment-scanning.md",
+    "docs/DEPLOYMENT.md", "docs/UPGRADE.md", "docs/deployment/clamav-attachment-scanning.md",
+    "SECURITY.md", "CHANGELOG.md", "Dockerfile",
 }
+REQUIRED_SOURCE = REQUIRED_RUNTIME | {"README.md", "bin/build-release.py", "docs/screenshots/v3-compact-light-home.png"}
 
 
 def file_list(runtime: bool) -> list[tuple[Path, str]]:
@@ -53,7 +46,8 @@ def file_list(runtime: bool) -> list[tuple[Path, str]]:
         if not source.is_file():
             continue
         path = rel.as_posix()
-        if source.name in SECRET_NAMES or source.suffix.lower() in FORBIDDEN_SUFFIXES:
+        if (source.name in SECRET_NAMES or source.name.startswith(".env.")
+                or source.suffix.lower() in FORBIDDEN_SUFFIXES or source.suffix.lower() == ".zip"):
             raise ValueError(f"Refusing sensitive or runtime file: {path}")
         if runtime:
             if any(part in RUNTIME_SKIP_DIRS for part in rel.parts) or path in RUNTIME_EXACT:
@@ -99,7 +93,7 @@ def main() -> int:
         source_files = file_list(runtime=False)
         runtime_files = file_list(runtime=True)
         out.mkdir(parents=True, exist_ok=True)
-        source_zip = out / "TaskFlow-v3-Public-GitHub-Ready.zip"
+        source_zip = out / "TaskFlow-v3-Public-Release.zip"
         runtime_zip = out / "TaskFlow-v3-Public-Deploy.zip"
         source_hash = make_zip(source_zip, source_files, REQUIRED_SOURCE)
         runtime_hash = make_zip(runtime_zip, runtime_files, REQUIRED_RUNTIME)

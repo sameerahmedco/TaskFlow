@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../includes/functions.php';
+require_once __DIR__ . '/../includes/account_admin.php';
 start_secure_session();
 $me = current_user_record();
 $method = effective_method();
@@ -65,8 +66,10 @@ if ($method === 'POST') {
     $name = clean_str($body['name'] ?? '', 100);
     $email = strtolower(clean_str($body['email'] ?? '', 190));
     $password = (string) ($body['password'] ?? '');
-    $roles = is_array($body['roles'] ?? null) ? array_values(array_intersect($body['roles'], ALL_ROLES)) : [];
-    $teamId = !empty($body['team_id']) ? (int) $body['team_id'] : null;
+    try { $roles = taskflow_account_roles($body['roles'] ?? null); }
+    catch (InvalidArgumentException $e) { json_error($e->getMessage(),400); }
+    try { $teamId = taskflow_optional_team_id($body['team_id'] ?? null); }
+    catch (InvalidArgumentException $e) { json_error($e->getMessage(),400); }
 
     if (!$roles) {
         json_error('Select at least one role (Administrator, Manager, and/or Member).');
@@ -105,21 +108,28 @@ if ($method === 'POST') {
         foreach ($roles as $r) {
             $roleStmt->execute([$newId, $r]);
         }
+        // Creation must never commit without its security audit event.
+        log_activity($teamId, null, (int)$me['id'], 'user_created', "$name (" . implode(', ', $roles) . ")");
         $pdo->commit();
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        error_log($e->getMessage());
+    } catch (PDOException $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        if (str_starts_with((string)$e->getCode(),'23')) {
+            json_error('An account with that email already exists, or the selected team is invalid.',409);
+        }
+        error_log('TaskFlow account creation failed: ' . get_class($e));
+        json_error('Could not create the account.', 500);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('TaskFlow account creation failed: ' . get_class($e));
         json_error('Could not create the account.', 500);
     }
-
-    log_activity($teamId, null, $me['id'], 'user_created', "$name (" . implode(', ', $roles) . ")");
 
     json_response(['id' => $newId, 'name' => $name, 'email' => $email, 'roles' => $roles, 'team_id' => $teamId], 201);
 }
 
 if ($method === 'PUT' || $method === 'PATCH') {
-    $targetId = (int) ($body['id'] ?? 0);
-    if (!$targetId) json_error('User id is required.');
+    try { $targetId = taskflow_account_id($body['id'] ?? null); }
+    catch (InvalidArgumentException $e) { json_error($e->getMessage(), 400); }
 
     $isAdmin = in_array('administrator', $me['roles'], true);
 
@@ -134,38 +144,65 @@ if ($method === 'PUT' || $method === 'PATCH') {
         if ($allowedKeys !== ['team_id'] || !$teamIdIsNull) {
             json_error('Managers can only remove a member from their team.', 403);
         }
-        $stmt = $pdo->prepare("SELECT u.team_id, GROUP_CONCAT(ur.role) AS roles_csv FROM users u LEFT JOIN user_roles ur ON ur.user_id = u.id WHERE u.id = ? GROUP BY u.id");
-        $stmt->execute([$targetId]);
-        $target = $stmt->fetch();
-        if (!$target || (int) $target['team_id'] !== (int) $me['team_id']) {
-            json_error('That person is not on your team.', 403);
+        if ($targetId === (int)$me['id']) {
+            json_error('You cannot remove yourself from the team this way — ask an Administrator.', 403);
         }
-        if ($target['roles_csv'] && preg_match('/(^|,)(administrator|manager)(,|$)/', $target['roles_csv'])) {
-            json_error('Managers cannot remove another administrator or manager.', 403);
+        $pdo->beginTransaction();
+        try {
+            // Lock the user before testing membership; concurrent moves/demotions
+            // cannot change the destination between validation and update.
+            $stmt=$pdo->prepare('SELECT team_id FROM users WHERE id=? FOR UPDATE');
+            $stmt->execute([$targetId]);
+            $target=$stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$target || (int)$target['team_id'] !== (int)$me['team_id']) {
+                throw new DomainException('That person is not on your team.');
+            }
+            $stmt=$pdo->prepare('SELECT role FROM user_roles WHERE user_id=?');
+            $stmt->execute([$targetId]);
+            $rolesNow=$stmt->fetchAll(PDO::FETCH_COLUMN);
+            if (in_array('administrator',$rolesNow,true) || in_array('manager',$rolesNow,true)) {
+                throw new DomainException('Managers cannot remove another administrator or manager.');
+            }
+            $stmt=$pdo->prepare('UPDATE users SET team_id=NULL, auth_version=auth_version+1 WHERE id=? AND team_id=?');
+            $stmt->execute([$targetId,(int)$me['team_id']]);
+            if($stmt->rowCount()!==1) throw new DomainException('Team membership changed. Refresh before retrying.');
+            $pdo->prepare('DELETE FROM remember_tokens WHERE user_id=?')->execute([$targetId]);
+            $pdo->prepare('UPDATE password_reset_tokens SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL')->execute([$targetId]);
+            log_activity((int)$me['team_id'],null,(int)$me['id'],'user_updated','Removed user #'.$targetId.' from the team');
+            $pdo->commit();
+        } catch(DomainException $e) {
+            if($pdo->inTransaction())$pdo->rollBack();
+            json_error($e->getMessage(),403);
+        } catch(Throwable $e) {
+            if($pdo->inTransaction())$pdo->rollBack();
+            error_log('TaskFlow team removal failed: '.get_class($e));
+            json_error('Could not remove the member. Try again.',500);
         }
-        if ($targetId === (int) $me['id']) {
-            json_error('You cannot remove yourself from the team this way — ask an Administrator.');
-        }
-        $pdo->prepare('UPDATE users SET team_id = NULL, auth_version=auth_version+1 WHERE id = ?')->execute([$targetId]);
-        $pdo->prepare('DELETE FROM remember_tokens WHERE user_id = ?')->execute([$targetId]);
-        $pdo->prepare('UPDATE password_reset_tokens SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL')->execute([$targetId]);
-        log_activity((int) $me['team_id'], null, $me['id'], 'user_updated', 'Removed user #' . $targetId . ' from the team');
-        json_response(['ok' => true]);
+        json_response(['ok'=>true]);
     }
 
     $fields = [];
     $params = [];
-    if (isset($body['name'])) { $fields[] = 'name = ?'; $params[] = clean_str($body['name'], 100); }
+    if (array_key_exists('name',$body)) {
+        if(!is_string($body['name']) || trim($body['name'])==='')json_error('Account name cannot be blank.',400);
+        $fields[]='name = ?';$params[]=clean_str($body['name'],100);
+    }
 
-    if (isset($body['roles']) && is_array($body['roles'])) {
-        $roles = array_values(array_intersect($body['roles'], ALL_ROLES));
-        if (!$roles) json_error('Select at least one role.');
-        $fields[] = 'role = ?'; $params[] = primary_role($roles);
+    if (array_key_exists('roles', $body)) {
+        try { $roles = taskflow_account_roles($body['roles']); }
+        catch (InvalidArgumentException $e) { json_error($e->getMessage(),400); }
+        $fields[]='role = ?'; $params[]=primary_role($roles);
     }
     if (array_key_exists('team_id', $body)) {
-        $fields[] = 'team_id = ?'; $params[] = $body['team_id'] ? (int) $body['team_id'] : null;
+        try { $parsedTeamId=taskflow_optional_team_id($body['team_id']); }
+        catch (InvalidArgumentException $e) { json_error($e->getMessage(),400); }
+        $fields[]='team_id = ?'; $params[]=$parsedTeamId;
     }
-    if (isset($body['is_active'])) { $fields[] = 'is_active = ?'; $params[] = !empty($body['is_active']) ? 1 : 0; }
+    if (array_key_exists('is_active',$body)) {
+        try { $active=taskflow_account_active($body['is_active']); }
+        catch(InvalidArgumentException $e){json_error($e->getMessage(),400);}
+        $fields[]='is_active = ?';$params[]=$active?1:0;
+    }
     if (!empty($body['new_password'])) {
         assert_password_policy((string) $body['new_password']);
         if ($targetId === (int) $me['id']) json_error('Use Change Password to update your own password.', 403);
@@ -179,7 +216,10 @@ if ($method === 'PUT' || $method === 'PATCH') {
     $pdo->beginTransaction();
     try {
         protect_last_admin($pdo, $targetId, $roles ?? null,
-            array_key_exists('is_active', $body) ? (bool) $body['is_active'] : null);
+            array_key_exists('is_active',$body) ? $active : null);
+        $exists=$pdo->prepare('SELECT id FROM users WHERE id=? FOR UPDATE');
+        $exists->execute([$targetId]);
+        if(!$exists->fetchColumn())throw new DomainException('User not found.');
         if ($fields) {
             $params[] = $targetId;
             $pdo->prepare('UPDATE users SET ' . implode(', ', $fields) . ' WHERE id = ?')->execute($params);
@@ -195,52 +235,60 @@ if ($method === 'PUT' || $method === 'PATCH') {
             $pdo->prepare('DELETE FROM remember_tokens WHERE user_id=?')->execute([$targetId]);
             $pdo->prepare('UPDATE password_reset_tokens SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL')->execute([$targetId]);
         }
+        log_activity(null,null,(int)$me['id'],'user_updated','User #'.$targetId);
         $pdo->commit();
     } catch (DomainException $e) {
-        $pdo->rollBack();
-        json_error($e->getMessage(), 409);
-    } catch (Exception $e) {
-        $pdo->rollBack();
-        error_log($e->getMessage());
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        json_error($e->getMessage(),$e->getMessage()==='User not found.'?404:409);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('TaskFlow account update failed: '.get_class($e));
         json_error('Could not update the account.', 500);
     }
-
-    log_activity(null, null, $me['id'], 'user_updated', 'User #' . $targetId);
     json_response(['ok' => true]);
 }
 
 if ($method === 'DELETE') {
     require_administrator();
-    $targetId = (int) ($body['id'] ?? 0);
+    try { $targetId = taskflow_account_id($body['id'] ?? null); }
+    catch (InvalidArgumentException $e) { json_error($e->getMessage(),400); }
     if ($targetId === (int) $me['id']) {
         json_error('You cannot delete your own account.');
     }
-
-    $stmt = $pdo->prepare('SELECT name FROM users WHERE id = ?');
-    $stmt->execute([$targetId]);
-    $target = $stmt->fetch();
-    if (!$target) json_error('User not found.', 404);
-
     $permanent = !empty($body['permanent']);
     $pdo->beginTransaction();
     try {
         protect_last_admin($pdo, $targetId, null, false, $permanent);
+        $targetStmt=$pdo->prepare('SELECT name FROM users WHERE id=? FOR UPDATE');
+        $targetStmt->execute([$targetId]);
+        $target=$targetStmt->fetch(PDO::FETCH_ASSOC);
+        if(!$target)throw new DomainException('User not found.');
         if ($permanent) {
             $pdo->prepare('DELETE FROM users WHERE id = ?')->execute([$targetId]);
         } else {
             $pdo->prepare('UPDATE users SET is_active = 0, auth_version=auth_version+1 WHERE id = ?')->execute([$targetId]);
             $pdo->prepare('DELETE FROM remember_tokens WHERE user_id = ?')->execute([$targetId]);
+            $pdo->prepare('UPDATE password_reset_tokens SET used_at=UTC_TIMESTAMP() WHERE user_id=? AND used_at IS NULL')->execute([$targetId]);
         }
+        log_activity(null,null,(int)$me['id'],$permanent?'user_deleted':'user_deactivated',(string)$target['name']);
         $pdo->commit();
     } catch (DomainException $e) {
-        $pdo->rollBack();
-        json_error($e->getMessage(), 409);
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        json_error($e->getMessage(),$e->getMessage()==='User not found.'?404:409);
     } catch (PDOException $e) {
-        $pdo->rollBack();
-        error_log('User removal failed: ' . $e->getMessage());
-        json_error('This account has linked historical records. Deactivate instead of permanently deleting.', 409);
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('TaskFlow account removal failed: '.get_class($e));
+        // A foreign-key conflict is a genuine 409; database/audit failures
+        // must not masquerade as a user-resolvable record conflict.
+        if (str_starts_with((string)$e->getCode(),'23')) {
+            json_error('This account has linked historical records. Deactivate instead of permanently deleting.',409);
+        }
+        json_error('Could not remove this account. Try again later.',500);
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('TaskFlow account removal failed: '.get_class($e));
+        json_error('Could not remove this account.', 500);
     }
-    log_activity(null, null, $me['id'], $permanent ? 'user_deleted' : 'user_deactivated', $target['name']);
     json_response(['ok' => true, 'permanent' => $permanent]);
 }
 

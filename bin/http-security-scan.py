@@ -85,7 +85,7 @@ def scan(origin: str, tls: bool, ci_uninstalled: bool, fetch=inspect, *, static_
 
     # Check real paths which exist in the source, not only absent secret filenames.
     for path in ('config/config.php', 'includes/functions.php', 'bin/release-preflight.php',
-                 'docs/UPGRADE.md', 'docs/migrations/v3-task-reviews.sql', 'tests/security_static.php',
+                 'docs/UPGRADE.md', 'docs/migrations/v3-task-reviews.sql',
                  '.htaccess'):
         response = fetch_path(path)
         if response:
